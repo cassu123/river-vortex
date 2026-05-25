@@ -1,0 +1,50 @@
+# ================================================================================
+# Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+# File:     requirements.txt
+# Purpose:  Python package dependencies for the River Vortex backend.
+#           All versions are pinned to exact or minimum-compatible releases
+#           for reproducible production deployments on Raspberry Pi 4/5.
+# Author:   [Author Placeholder]
+# Version:  1.0.0
+# Date:     2026-05-25
+# ================================================================================
+
+# ── Core framework ────────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.1
+python-dotenv==1.0.1
+httpx==0.27.0
+
+# ── Home Assistant integration ────────────────────────────────────────────────
+# WebSocket client for HA real-time event stream
+websockets==12.0
+
+# ── Audio — microphone, speaker, wake word ────────────────────────────────────
+# PyAudio wraps PortAudio for cross-platform mic/speaker I/O
+PyAudio==0.2.14
+
+# Porcupine local wake word engine (Picovoice)
+# Requires a free access key from console.picovoice.ai
+pvporcupine==3.0.2
+
+# Numpy for audio signal processing (RMS silence detection)
+numpy==1.26.4
+
+# ── Connectivity ──────────────────────────────────────────────────────────────
+# httpx already listed above — used for River Song API and HA REST calls
+
+# ── System telemetry ──────────────────────────────────────────────────────────
+# CPU, memory, disk, and temperature metrics
+psutil==5.9.8
+
+# ── Raspberry Pi GPIO (hardware mic/camera mute LEDs) ────────────────────────
+# Only available on Raspberry Pi hardware — install conditionally
+# RPi.GPIO==0.7.1
+
+# ── Static file serving (React frontend build) ───────────────────────────────
+# Included with FastAPI/Starlette — no extra package needed
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==8.2.0
+pytest-asyncio==0.23.6

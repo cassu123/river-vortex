@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+  File:     frontend/index.html
+  Purpose:  Root HTML shell for the River Vortex React kiosk application.
+            Loaded by Chromium in kiosk mode on the Pi touchscreen.
+  Author:   [Author Placeholder]
+  Version:  1.0.0
+  Date:     2026-05-25
+  ============================================================================
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <meta name="description" content="River Vortex — Smart Home Hub" />
+
+    <!-- Prevent text selection on touchscreen kiosk -->
+    <style>
+      * { -webkit-user-select: none; user-select: none; }
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0a0a0f;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      #root { width: 100vw; height: 100vh; }
+    </style>
+
+    <title>River Vortex</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- React app bundle injected here by Vite build -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
