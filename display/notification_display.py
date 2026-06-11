@@ -125,15 +125,16 @@ class NotificationDisplay:
 
         # Wake screen for urgent notifications
         if notification.priority == NotificationPriority.URGENT and self._screen:
-            asyncio.create_task(self._screen.go_dashboard())
+            self._safe_create_task(self._screen.go_dashboard())
 
         # Schedule auto-dismiss
         if notification.auto_dismiss:
-            task = asyncio.create_task(
+            task = self._safe_create_task(
                 self._auto_dismiss(notification.id, notification.dismiss_after),
                 name=f"dismiss-{notification.id[:8]}",
             )
-            self._dismiss_tasks[notification.id] = task
+            if task is not None:
+                self._dismiss_tasks[notification.id] = task
 
         return notification.id
 
@@ -172,6 +173,28 @@ class NotificationDisplay:
     # ─────────────────────────────────────────────────────────────────────────
     # Private
     # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _safe_create_task(coro, *, name: Optional[str] = None) -> Optional["asyncio.Task"]:
+        """
+        Schedule a coroutine as a task if an event loop is currently running.
+
+        Outside of an async context (e.g. synchronous unit tests or calls
+        made before the event loop starts), the coroutine is closed instead
+        of scheduled, and None is returned.
+
+        Args:
+            coro: The coroutine to schedule.
+            name: Optional name for the resulting task.
+
+        Returns:
+            The created Task, or None if no event loop is running.
+        """
+        try:
+            return asyncio.create_task(coro, name=name)
+        except RuntimeError:
+            coro.close()
+            return None
 
     async def _auto_dismiss(self, notification_id: str, delay: int) -> None:
         """
