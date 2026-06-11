@@ -18,14 +18,15 @@ import Ambient from './pages/Ambient';
 import Dashboard from './pages/Dashboard';
 import Devices from './pages/Devices';
 import Cameras from './pages/Cameras';
+import Setup from './pages/Setup';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App Context — shared state accessible to all child components
 // ─────────────────────────────────────────────────────────────────────────────
 
 const initialState = {
-  /** Current display page: 'ambient' | 'dashboard' | 'devices' | 'cameras' */
-  page: 'ambient',
+  /** Current display page: 'loading' | 'setup' | 'ambient' | 'dashboard' | 'devices' | 'cameras' */
+  page: 'loading',
   /** WebSocket connection status */
   wsConnected: false,
   /** Latest ambient data from backend */
@@ -162,6 +163,8 @@ function handleMessage(msg, dispatch) {
 
 function PageRouter({ page }) {
   switch (page) {
+    case 'loading':   return null;
+    case 'setup':     return <Setup />;
     case 'dashboard': return <Dashboard />;
     case 'devices':   return <Devices />;
     case 'cameras':   return <Cameras />;
@@ -200,6 +203,25 @@ export default function App() {
 
   const navigate = useCallback((page) => {
     dispatch({ type: 'SET_PAGE', payload: page });
+  }, []);
+
+  // On first load, check whether this unit has been paired with River Song.
+  // Unpaired units land on the Setup (pairing) screen instead of Ambient.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        dispatch({ type: 'UPDATE_SYSTEM', payload: data });
+        dispatch({ type: 'SET_PAGE', payload: data.configured ? 'ambient' : 'setup' });
+      })
+      .catch(() => {
+        if (!cancelled) dispatch({ type: 'SET_PAGE', payload: 'ambient' });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const contextValue = { state, dispatch, navigate };

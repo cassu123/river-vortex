@@ -31,7 +31,13 @@ class TestScreenManager(unittest.TestCase):
 
     def _make_manager(self):
         """Create a ScreenManager with backlight writes patched out."""
+        from core.config import config
         from display.screen_manager import ScreenManager
+
+        # These tests assume a paired unit (AMBIENT mode + idle timer on
+        # start), not the unpaired Setup-mode startup path.
+        config.set("configured", True)
+
         manager = ScreenManager()
         manager._apply_brightness = MagicMock()
         manager._notify_frontend = AsyncMock()
@@ -43,6 +49,21 @@ class TestScreenManager(unittest.TestCase):
         run_async(manager.start())
         self.assertTrue(manager._running)
         run_async(manager.stop())
+
+    def test_start_enters_setup_mode_when_unconfigured(self):
+        """An unpaired unit should start in Setup mode without an idle timer."""
+        from core.config import config
+        from display.screen_manager import DisplayMode
+
+        manager = self._make_manager()
+        config.set("configured", False)
+        try:
+            run_async(manager.start())
+            self.assertEqual(manager._current_mode, DisplayMode.SETUP)
+            self.assertIsNone(manager._idle_timer_task)
+            run_async(manager.stop())
+        finally:
+            config.set("configured", True)
 
     def test_set_mode_changes_current_mode(self):
         """set_mode() should update _current_mode."""

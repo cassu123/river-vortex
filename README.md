@@ -15,6 +15,7 @@
 | **Intercom** | Peer-to-peer audio between Vortex units in different rooms via UDP multicast. |
 | **4G LTE fallback** | Automatic cellular failover when home WiFi is unavailable. |
 | **Privacy controls** | Hardware GPIO LED indicators for mic and camera mute state. |
+| **Zero-touch setup** | Pairs with the River Song app like a Google Home device — discoverable via mDNS, paired with an on-screen PIN. No SSH or config files required. |
 
 ---
 
@@ -84,7 +85,10 @@ pip install -r requirements.txt
 
 ### 2. Configure
 
-Copy `.env.example` to `.env` and fill in your values:
+Production units don't need this step — see [First-Run Pairing](#first-run-pairing-setup-mode)
+below to set up the unit from the River Song app instead.
+
+For local development, copy `.env.example` to `.env` and fill in your values:
 
 ```bash
 # Required
@@ -129,6 +133,49 @@ chromium-browser --kiosk --noerrdialogs --disable-infobars http://localhost:8080
 
 ---
 
+## First-Run Pairing (Setup Mode)
+
+A freshly-flashed Vortex unit ships **unpaired** — set up the same way you'd
+set up a Google Home or Nest device, no SSH or `.env` editing required:
+
+1. **Boot the unit.** With `"configured": false` (the default in
+   `units/vortex_profile.json`), Vortex starts in **Setup mode**: the
+   touchscreen shows a 6-digit pairing PIN, and the unit advertises itself
+   on the local network via mDNS as `_riversong-vortex._tcp.local.`.
+2. **Open the River Song app** (or browser) on a phone/computer connected to
+   the same WiFi network. River Song discovers nearby unpaired Vortex units
+   over mDNS.
+3. **Enter the PIN** shown on the unit's display. River Song calls this
+   unit's local setup API to deliver the River Song connection details (and
+   optionally Home Assistant credentials, unit name, and location).
+4. **The unit restarts automatically** with the new configuration applied,
+   then boots straight into Ambient mode.
+
+### Setup API
+
+These endpoints are local-network only and unauthenticated by design — `/pair`
+is gated by the on-screen PIN instead.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/setup/info` | `GET` | Unit identity, hardware info, `configured` status, and (while unpaired) the current pairing PIN. |
+| `/api/vortex/v1/setup/pair` | `POST` | Complete pairing: PIN + River Song (and optional HA/unit) settings. Persists to `vortex_profile.json` and restarts the unit. |
+| `/api/vortex/v1/setup/unpair` | `POST` | Reset the unit back to Setup mode (requires the current `river_song_api_key`). |
+
+### Re-pairing / factory reset
+
+To return a unit to Setup mode, call `/api/vortex/v1/setup/unpair` with its
+current `river_song_api_key`, or manually set `"configured": false` in
+`units/vortex_profile.json` and restart.
+
+### Headless / development setup
+
+To skip pairing during development, set `RIVER_SONG_API_KEY` in `.env` — a
+unit with this key already set is treated as configured and boots straight
+into Ambient mode.
+
+---
+
 ## Configuration Priority
 
 Settings are loaded in this order (later sources win):
@@ -137,6 +184,10 @@ Settings are loaded in this order (later sources win):
 2. `.env` file
 3. `units/vortex_profile.json`
 4. Environment variables (highest priority)
+
+The `configured` flag and `river_song_api_url` / `river_song_api_key` in
+`units/vortex_profile.json` are normally written automatically by the
+pairing flow above — see [First-Run Pairing](#first-run-pairing-setup-mode).
 
 ---
 

@@ -97,6 +97,13 @@ class Config:
         # Step 4: Apply environment variable overrides (highest priority)
         self._apply_env_overrides()
 
+        # A unit is considered "configured" once it has River Song credentials,
+        # either from a completed pairing (persisted to the profile) or from
+        # a manually-supplied RIVER_SONG_API_KEY (e.g., headless/dev setups).
+        self._settings["configured"] = bool(self._settings.get("configured", False)) or bool(
+            self._settings.get("river_song_api_key")
+        )
+
         self._loaded = True
         logger.info(
             "Configuration loaded for unit '%s' at location '%s'",
@@ -152,6 +159,44 @@ class Config:
         logger.debug("Runtime config override: %s = %r", key, value)
         self._settings[key] = value
 
+    def save_profile(self, updates: Dict[str, Any]) -> None:
+        """
+        Persist key/value updates to vortex_profile.json and reload configuration.
+
+        Used by the setup/pairing API to write pairing results (River Song
+        connection details, unit identity, etc.) back to disk so they survive
+        restarts. Existing profile keys not present in `updates` are preserved.
+
+        Args:
+            updates: Flat dict of top-level profile keys to set or overwrite.
+        """
+        profile_data: Dict[str, Any] = {}
+        if self._profile_path.exists():
+            try:
+                with self._profile_path.open("r", encoding="utf-8") as fh:
+                    profile_data = json.load(fh)
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.error(
+                    "Could not read existing profile before save: %s — starting fresh.",
+                    exc,
+                )
+                profile_data = {}
+
+        profile_data.update(updates)
+
+        self._profile_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._profile_path.open("w", encoding="utf-8") as fh:
+            json.dump(profile_data, fh, indent=2)
+            fh.write("\n")
+
+        logger.info(
+            "Profile saved to %s (%d key(s) updated).",
+            self._profile_path.resolve(),
+            len(updates),
+        )
+
+        self.load(profile_path=str(self._profile_path))
+
     def as_dict(self) -> Dict[str, Any]:
         """
         Return a copy of all settings as a plain dictionary.
@@ -187,6 +232,9 @@ class Config:
             "unit_id": "vortex-unset",
             "unit_name": "River Vortex",
             "location": "Unknown Room",
+
+            # Pairing — true once this unit has been paired with River Song
+            "configured": False,
 
             # River Song API
             "river_song_api_url": os.getenv("RIVER_SONG_API_URL", "http://riversong.local"),

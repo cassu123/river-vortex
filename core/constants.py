@@ -34,11 +34,25 @@ RIVER_SONG_COMMAND_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSI
 RIVER_SONG_STATUS_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/status"
 RIVER_SONG_STREAM_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/stream"
 RIVER_SONG_HEALTH_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/health"
+RIVER_SONG_SETUP_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/setup"
 
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5
 API_READ_TIMEOUT: int = 30
 API_STREAM_TIMEOUT: int = 120
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pairing & Discovery
+# ─────────────────────────────────────────────────────────────────────────────
+# A freshly-installed Vortex unit is "unpaired": it has no River Song API key
+# yet. While unpaired it advertises itself on the local network via mDNS and
+# displays a one-time pairing PIN. The River Song app/browser discovers the
+# unit, the user confirms the PIN, and the app POSTs River Song's connection
+# details to the unit's setup API — much like adding a new Google Home device.
+
+PAIRING_PIN_LENGTH: int = 6
+MDNS_SERVICE_TYPE: str = "_riversong-vortex._tcp.local."
+RESTART_DELAY_SECONDS: float = 2.0   # Grace period before restarting after pairing
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Audio — Microphone & Wake Word
@@ -189,6 +203,7 @@ LOG_DIR: str = "/var/log/river-vortex"
 class VortexState(Enum):
     """Top-level system states for the River Vortex unit."""
     INITIALIZING = auto()
+    SETUP = auto()          # Unpaired — advertising for River Song app pairing
     IDLE = auto()           # Ambient mode, listening for wake word
     LISTENING = auto()      # Wake word detected, capturing command
     PROCESSING = auto()     # Audio sent to River Song, awaiting response

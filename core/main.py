@@ -15,17 +15,19 @@ License:     Internal Use Only — River Song AI / riversongai.com
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from core import setup_api
 from core.config import Config, ConfigError, config
 from core.constants import (
     BACKEND_HOST,
@@ -33,6 +35,7 @@ from core.constants import (
     CORS_ALLOWED_ORIGINS,
     FRONTEND_BUILD_DIR,
     PROFILE_PATH,
+    RESTART_DELAY_SECONDS,
     SYSTEM_NAME,
     VERSION,
     VortexState,
@@ -49,12 +52,17 @@ logger = logging.getLogger(__name__)
 # FastAPI application factory
 # ─────────────────────────────────────────────────────────────────────────────
 
-def create_app() -> FastAPI:
+def create_app(restart_callback: Optional[Callable[[], None]] = None) -> FastAPI:
     """
     Build and configure the FastAPI application instance.
 
     Registers CORS middleware, mounts the React frontend static build,
     and includes all API routers. Called once at startup.
+
+    Args:
+        restart_callback: Optional zero-argument callable that restarts the
+                           process. Wired into the setup/pairing API so it
+                           can apply new configuration after pairing.
 
     Returns:
         A fully configured FastAPI application.
@@ -76,6 +84,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # First-run pairing API — unauthenticated, used by the River Song app
+    # to discover and configure this unit (see core/setup_api.py).
+    if restart_callback:
+        setup_api.set_restart_callback(restart_callback)
+    app.include_router(setup_api.router)
 
     # Mount React frontend build if it exists
     frontend_path = Path(FRONTEND_BUILD_DIR)
@@ -103,6 +117,7 @@ def create_app() -> FastAPI:
             "version": VERSION,
             "unit_id": config.get("unit_id"),
             "unit_name": config.get("unit_name"),
+            "configured": bool(config.get("configured", False)),
             "status": "ok",
         }
 
@@ -147,6 +162,7 @@ class RiverVortex:
         self._privacy_manager = None
         self._watchdog = None
         self._telemetry_collector = None
+        self._discovery_service = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -197,11 +213,20 @@ class RiverVortex:
         try:
             await self._init_subsystems()
             await self._start_backend_server()
-            self._set_state(VortexState.IDLE)
-            logger.info("%s is ready. Unit: %s | Location: %s",
-                        SYSTEM_NAME,
-                        config.get("unit_name"),
-                        config.get("location"))
+
+            if config.get("configured", False):
+                self._set_state(VortexState.IDLE)
+                logger.info("%s is ready. Unit: %s | Location: %s",
+                            SYSTEM_NAME,
+                            config.get("unit_name"),
+                            config.get("location"))
+            else:
+                self._set_state(VortexState.SETUP)
+                logger.info(
+                    "%s is unpaired. Open the River Song app to set up this "
+                    "unit using the pairing PIN shown on its display.",
+                    SYSTEM_NAME,
+                )
 
             # Block here until a shutdown signal sets the event
             await self._shutdown_event.wait()
@@ -257,12 +282,13 @@ class RiverVortex:
         Order matters:
           1. Telemetry — must be up before anything else logs
           2. Privacy manager — hardware mute state set before mic opens
-          3. Connectivity — network must be checked before HA/API clients
-          4. Home Assistant client
-          5. Audio (wake word + mic + speaker)
-          6. Display (screen + ambient mode)
-          7. Intercom
-          8. Watchdog — last, so it can monitor all other subsystems
+          3. Discovery (mDNS) — so the unit is findable for setup ASAP
+          4. Connectivity — network must be checked before HA/API clients
+          5. Home Assistant client
+          6. Audio (wake word + mic + speaker)
+          7. Display (screen + ambient mode)
+          8. Intercom
+          9. Watchdog — last, so it can monitor all other subsystems
 
         Each subsystem is imported lazily here to avoid circular imports
         and to allow individual modules to be tested in isolation.
@@ -286,6 +312,17 @@ class RiverVortex:
             logger.info("[OK] Privacy manager started.")
         except Exception as exc:
             logger.error("Privacy manager failed to start: %s", exc)
+
+        # ── Discovery (mDNS) ──────────────────────────────────────────────────
+        # Advertised whether configured or not — River Song uses this both to
+        # find unpaired units during setup and to keep track of paired ones.
+        try:
+            from connectivity.discovery import DiscoveryService
+            self._discovery_service = DiscoveryService()
+            await self._discovery_service.start()
+            logger.info("[OK] Discovery service started.")
+        except Exception as exc:
+            logger.error("Discovery service failed to start: %s", exc)
 
         # ── Connectivity ──────────────────────────────────────────────────────
         try:
@@ -377,7 +414,7 @@ class RiverVortex:
         The server runs in a daemon thread so it does not block the async
         event loop. The loop continues to handle subsystem events and signals.
         """
-        self._app = create_app()
+        self._app = create_app(restart_callback=self._trigger_restart)
 
         host = config.get("backend_host", BACKEND_HOST)
         port = int(config.get("backend_port", BACKEND_PORT))
@@ -400,6 +437,26 @@ class RiverVortex:
         )
         server_thread.start()
         logger.info("Backend API server started on http://%s:%d", host, port)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Restart (used after pairing/unpairing)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _trigger_restart(self) -> None:
+        """
+        Schedule a full process restart.
+
+        Called by the setup API after a successful pair/unpair so the new
+        configuration (River Song credentials, unit identity, etc.) is
+        picked up by every subsystem on a clean boot. The restart runs on a
+        short delay so the HTTP response confirming pairing can be sent
+        first, then replaces the current process image with a fresh one.
+        """
+        def _restart() -> None:
+            logger.info("Restarting %s to apply new configuration...", SYSTEM_NAME)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+        threading.Timer(RESTART_DELAY_SECONDS, _restart).start()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Shutdown
@@ -433,6 +490,7 @@ class RiverVortex:
             ("Screen",        self._screen_manager),
             ("HA Client",     self._ha_client),
             ("Connectivity",  self._connectivity_manager),
+            ("Discovery",     self._discovery_service),
             ("Privacy",       self._privacy_manager),
             ("Telemetry",     self._telemetry_collector),
         ]
@@ -477,10 +535,6 @@ class RiverVortex:
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Deferred import — only needed at runtime, not during module import
-import os  # noqa: E402  (placed here to avoid circular import issues at top)
-
 
 def main() -> None:
     """
