@@ -20,14 +20,14 @@ import signal
 import sys
 import threading
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from core import setup_api
+from core import routines_api, setup_api, timers_api
 from core.config import Config, ConfigError, config
 from core.constants import (
     BACKEND_HOST,
@@ -40,6 +40,9 @@ from core.constants import (
     VERSION,
     VortexState,
 )
+from core.routines import RoutineSession
+from core.timers import TimerManager
+from core.ws_hub import ws_hub
 from telemetry.logger import setup_logging
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +55,11 @@ logger = logging.getLogger(__name__)
 # FastAPI application factory
 # ─────────────────────────────────────────────────────────────────────────────
 
-def create_app(restart_callback: Optional[Callable[[], None]] = None) -> FastAPI:
+def create_app(
+    restart_callback: Optional[Callable[[], None]] = None,
+    timer_manager: Optional[TimerManager] = None,
+    routine_session: Optional[RoutineSession] = None,
+) -> FastAPI:
     """
     Build and configure the FastAPI application instance.
 
@@ -63,6 +70,11 @@ def create_app(restart_callback: Optional[Callable[[], None]] = None) -> FastAPI
         restart_callback: Optional zero-argument callable that restarts the
                            process. Wired into the setup/pairing API so it
                            can apply new configuration after pairing.
+        timer_manager:    Optional TimerManager backing /api/vortex/v1/timers.
+                           If None, those endpoints respond 503.
+        routine_session:  Optional RoutineSession backing
+                           /api/vortex/v1/routine. If None, those endpoints
+                           respond 503.
 
     Returns:
         A fully configured FastAPI application.
@@ -91,17 +103,27 @@ def create_app(restart_callback: Optional[Callable[[], None]] = None) -> FastAPI
         setup_api.set_restart_callback(restart_callback)
     app.include_router(setup_api.router)
 
-    # Mount React frontend build if it exists
-    frontend_path = Path(FRONTEND_BUILD_DIR)
-    if frontend_path.exists() and frontend_path.is_dir():
-        app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
-        logger.info("Frontend build mounted from %s", frontend_path.resolve())
-    else:
-        logger.warning(
-            "Frontend build directory '%s' not found. "
-            "Run 'npm run build' inside frontend/ to generate it.",
-            frontend_path.resolve(),
-        )
+    # Timers/alarms and guided routines (cooking mode, etc.) — driven by
+    # River Song's voice intent handlers (see core/timers_api.py,
+    # core/routines_api.py).
+    timers_api.set_timer_manager(timer_manager)
+    app.include_router(timers_api.router)
+
+    routines_api.set_routine_session(routine_session)
+    app.include_router(routines_api.router)
+
+    # Real-time event stream to the frontend (display mode changes, timer
+    # updates, guided routine steps, etc.) — see core/ws_hub.py.
+    @app.websocket("/api/ws")
+    async def websocket_endpoint(websocket: WebSocket) -> None:
+        await ws_hub.connect(websocket)
+        try:
+            while True:
+                # The frontend doesn't send anything meaningful — just keep
+                # the connection open until the client disconnects.
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            await ws_hub.disconnect(websocket)
 
     # ── API health check ──────────────────────────────────────────────────────
     @app.get("/api/health", tags=["System"])
@@ -120,6 +142,20 @@ def create_app(restart_callback: Optional[Callable[[], None]] = None) -> FastAPI
             "configured": bool(config.get("configured", False)),
             "status": "ok",
         }
+
+    # Mount React frontend build if it exists. Registered last — it's a
+    # catch-all at "/" and would otherwise shadow any API route defined
+    # after it.
+    frontend_path = Path(FRONTEND_BUILD_DIR)
+    if frontend_path.exists() and frontend_path.is_dir():
+        app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+        logger.info("Frontend build mounted from %s", frontend_path.resolve())
+    else:
+        logger.warning(
+            "Frontend build directory '%s' not found. "
+            "Run 'npm run build' inside frontend/ to generate it.",
+            frontend_path.resolve(),
+        )
 
     return app
 
@@ -157,12 +193,15 @@ class RiverVortex:
         self._audio_manager = None
         self._screen_manager = None
         self._ha_client = None
+        self._device_control = None
         self._intercom_manager = None
         self._connectivity_manager = None
         self._privacy_manager = None
         self._watchdog = None
         self._telemetry_collector = None
         self._discovery_service = None
+        self._timer_manager = None
+        self._routine_session = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -284,11 +323,12 @@ class RiverVortex:
           2. Privacy manager — hardware mute state set before mic opens
           3. Discovery (mDNS) — so the unit is findable for setup ASAP
           4. Connectivity — network must be checked before HA/API clients
-          5. Home Assistant client
+          5. Home Assistant client (+ DeviceControl)
           6. Audio (wake word + mic + speaker)
           7. Display (screen + ambient mode)
           8. Intercom
-          9. Watchdog — last, so it can monitor all other subsystems
+          9. Timers & guided routines (cooking mode, etc.)
+          10. Watchdog — last, so it can monitor all other subsystems
 
         Each subsystem is imported lazily here to avoid circular imports
         and to allow individual modules to be tested in isolation.
@@ -336,12 +376,14 @@ class RiverVortex:
         # ── Home Assistant ────────────────────────────────────────────────────
         if config.get("ha_token") and config.get("cap_home_assistant", True):
             try:
+                from home_assistant.device_control import DeviceControl
                 from home_assistant.ha_client import HAClient
                 self._ha_client = HAClient(
                     url=config.require("ha_url"),
                     token=config.require("ha_token"),
                 )
                 await self._ha_client.connect()
+                self._device_control = DeviceControl(self._ha_client)
                 logger.info("[OK] Home Assistant client connected.")
             except Exception as exc:
                 logger.error("Home Assistant client failed to connect: %s", exc)
@@ -384,6 +426,23 @@ class RiverVortex:
         else:
             logger.info("[SKIP] Intercom subsystem disabled.")
 
+        # ── Timers & Guided Routines ─────────────────────────────────────────
+        # Stateful helpers driven by River Song's voice intent handlers via
+        # /api/vortex/v1/timers and /api/vortex/v1/routine. Timers chime
+        # through the speaker when they elapse; routines duck background
+        # media (if HA is connected) and switch the display to "routine" mode.
+        try:
+            self._timer_manager = TimerManager(on_timer_done=self._on_timer_done)
+            self._routine_session = RoutineSession(
+                device_control=self._device_control,
+                on_mode_change=(
+                    self._screen_manager.set_mode if self._screen_manager else None
+                ),
+            )
+            logger.info("[OK] Timers and guided routines ready.")
+        except Exception as exc:
+            logger.error("Timers/routines failed to initialize: %s", exc)
+
         # ── Watchdog ──────────────────────────────────────────────────────────
         try:
             from safety.watchdog import Watchdog
@@ -403,6 +462,21 @@ class RiverVortex:
 
         logger.info("All subsystems initialized.")
 
+    def _on_timer_done(self, timer: Dict[str, Any]) -> None:
+        """
+        Callback invoked by TimerManager when a timer/alarm elapses.
+
+        Plays a chime through the speaker so the user hears it even if
+        they're not looking at the display. Runs synchronously on the
+        asyncio event loop thread.
+
+        Args:
+            timer: The expired timer's dict (id, label, duration_seconds, ...).
+        """
+        if self._audio_manager:
+            self._audio_manager.play_chime("done")
+        logger.info("Timer '%s' finished.", timer.get("label", "Timer"))
+
     # ─────────────────────────────────────────────────────────────────────────
     # Backend Server
     # ─────────────────────────────────────────────────────────────────────────
@@ -414,7 +488,11 @@ class RiverVortex:
         The server runs in a daemon thread so it does not block the async
         event loop. The loop continues to handle subsystem events and signals.
         """
-        self._app = create_app(restart_callback=self._trigger_restart)
+        self._app = create_app(
+            restart_callback=self._trigger_restart,
+            timer_manager=self._timer_manager,
+            routine_session=self._routine_session,
+        )
 
         host = config.get("backend_host", BACKEND_HOST)
         port = int(config.get("backend_port", BACKEND_PORT))
@@ -485,6 +563,8 @@ class RiverVortex:
 
         shutdown_order = [
             ("Watchdog",      self._watchdog),
+            ("Routine",       self._routine_session),
+            ("Timers",        self._timer_manager),
             ("Intercom",      self._intercom_manager),
             ("Audio",         self._audio_manager),
             ("Screen",        self._screen_manager),

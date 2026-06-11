@@ -17,6 +17,7 @@ import React, { useCallback } from 'react';
 import Clock from '../components/Clock';
 import Weather from '../components/Weather';
 import NotificationBar from '../components/NotificationBar';
+import TimersWidget from '../components/TimersWidget';
 import { useApp } from '../App';
 
 /**
@@ -44,6 +45,9 @@ export default function Ambient() {
     >
       {/* Notification overlay — top right */}
       <NotificationBar />
+
+      {/* Active timers — top left */}
+      <TimersWidget />
 
       {/* Center content */}
       <div style={styles.center}>

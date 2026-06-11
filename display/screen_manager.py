@@ -39,6 +39,7 @@ class DisplayMode:
     CAMERAS = "cameras"
     INTERCOM = "intercom"
     NOTIFICATION = "notification"
+    ROUTINE = "routine"
 
 
 class ScreenManager:
@@ -231,6 +232,6 @@ class ScreenManager:
         Args:
             mode: The new display mode string.
         """
-        # Frontend WebSocket notification is handled by the FastAPI event
-        # broadcast system. This is a placeholder for that integration.
+        from core.ws_hub import ws_hub
+        await ws_hub.broadcast({"type": "navigate", "page": mode})
         logger.debug("Frontend notified of mode change: %s", mode)

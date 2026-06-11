@@ -35,6 +35,8 @@ RIVER_SONG_STATUS_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSIO
 RIVER_SONG_STREAM_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/stream"
 RIVER_SONG_HEALTH_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/health"
 RIVER_SONG_SETUP_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/setup"
+RIVER_SONG_TIMERS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/timers"
+RIVER_SONG_ROUTINE_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/routine"
 
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5
@@ -53,6 +55,17 @@ API_STREAM_TIMEOUT: int = 120
 PAIRING_PIN_LENGTH: int = 6
 MDNS_SERVICE_TYPE: str = "_riversong-vortex._tcp.local."
 RESTART_DELAY_SECONDS: float = 2.0   # Grace period before restarting after pairing
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Timers & Guided Routines (Cooking Mode, etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+# River Song recognizes voice intents (e.g., "set a timer for 10 minutes",
+# "start the lasagna recipe", "next step") and drives these features via the
+# REST APIs in core/timers_api.py and core/routines_api.py. Vortex owns the
+# countdown/step state, the on-screen display, and ducking background media.
+
+MAX_TIMER_DURATION_SECONDS: int = 24 * 60 * 60   # 24 hours
+ROUTINE_DUCK_VOLUME_LEVEL: float = 0.2           # Media volume (0.0-1.0) while a routine is active
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Audio — Microphone & Wake Word

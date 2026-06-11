@@ -12,6 +12,8 @@
 | **Ambient display** | Clock, weather, and notifications on a 7" or 10" touchscreen — always visible, always current. |
 | **Device control** | Full Home Assistant integration — lights, thermostat, locks, covers, media players. |
 | **Camera feeds** | Live snapshots and streams from all HA camera entities. |
+| **Timers & alarms** | Voice-activated countdown timers with on-screen display and a chime when they elapse. |
+| **Guided routines** | Step-by-step walkthroughs (cooking mode, workout mode, bedtime checklists) that duck background music and switch the display for the duration. |
 | **Intercom** | Peer-to-peer audio between Vortex units in different rooms via UDP multicast. |
 | **4G LTE fallback** | Automatic cellular failover when home WiFi is unavailable. |
 | **Privacy controls** | Hardware GPIO LED indicators for mic and camera mute state. |
@@ -51,7 +53,7 @@ River Vortex is the **room interface layer only**. All AI processing is handled 
 
 ```
 river-vortex/
-├── core/               # Main entry point, config, constants
+├── core/               # Entry point, config, constants, WS hub, timers, routines
 ├── audio/              # Wake word (Porcupine), mic, speaker, audio manager
 ├── display/            # Screen manager, ambient mode, notifications, cameras
 ├── home_assistant/     # HA WebSocket client, device control, automation triggers
@@ -173,6 +175,53 @@ current `river_song_api_key`, or manually set `"configured": false` in
 To skip pairing during development, set `RIVER_SONG_API_KEY` in `.env` — a
 unit with this key already set is treated as configured and boots straight
 into Ambient mode.
+
+---
+
+## Real-Time Events, Timers & Guided Routines
+
+These features are driven by River Song's voice intent handlers, which call
+the small REST APIs below. Vortex owns the countdown/step state, the
+on-screen display, and (for routines) ducking background media. See
+[ROADMAP.md](ROADMAP.md) for the full Alexa/Google Home feature parity plan.
+
+### WebSocket event hub — `/api/ws`
+
+A single shared WebSocket endpoint that the React frontend connects to on
+load. Every subsystem broadcasts JSON messages to all connected clients
+through `core/ws_hub.py`. Relevant message types added in this phase:
+
+| `type` | Payload | Sent when |
+|---|---|---|
+| `timers_update` | `{ "timers": [...] }` | A timer is created, cancelled, or elapses. |
+| `timer_done` | `{ "timer": {...} }` | A timer reaches zero (also plays a chime). |
+| `routine_update` | `{ "routine": {...} }` | A routine starts, advances, or stops. |
+
+### Timers API — `/api/vortex/v1/timers`
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/timers` | `GET` | List all active timers/alarms. |
+| `/api/vortex/v1/timers` | `POST` | Start a new timer: `{"duration_seconds": 600, "label": "Pasta"}`. |
+| `/api/vortex/v1/timers/{timer_id}` | `DELETE` | Cancel an active timer. |
+
+### Guided Routines API — `/api/vortex/v1/routine`
+
+Used for cooking mode, workout mode, bedtime checklists, or any
+step-by-step walkthrough.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/routine` | `GET` | Current routine state (`{"active": false}` if none). |
+| `/api/vortex/v1/routine` | `POST` | Start a routine: `{"title": "...", "steps": [{"instruction": "...", "duration_seconds": 540}]}`. Replaces any in-progress routine. |
+| `/api/vortex/v1/routine/next` | `POST` | Advance to the next step (stops the routine on the last step). |
+| `/api/vortex/v1/routine/previous` | `POST` | Go back one step (no-op on the first step). |
+| `/api/vortex/v1/routine` | `DELETE` | End the routine early. |
+
+While a routine is active, any currently-playing Home Assistant media
+players are ducked to `ROUTINE_DUCK_VOLUME_LEVEL` (see `core/constants.py`)
+and restored to their original volume when the routine ends. The display
+switches to a dedicated "routine" mode for the duration.
 
 ---
 

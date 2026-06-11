@@ -18,6 +18,7 @@ import Ambient from './pages/Ambient';
 import Dashboard from './pages/Dashboard';
 import Devices from './pages/Devices';
 import Cameras from './pages/Cameras';
+import Routine from './pages/Routine';
 import Setup from './pages/Setup';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,6 +42,12 @@ const initialState = {
   notifications: [],
   /** Vortex listening state: idle | listening | processing | responding */
   vortexState: 'idle',
+  /** Active kitchen timers/alarms (see core/timers.py) */
+  timers: [],
+  /** Guided routine session state (cooking mode, etc. — see core/routines.py) */
+  routine: { active: false },
+  /** Most recently elapsed timer, for a transient "time's up" banner */
+  lastTimerDone: null,
 };
 
 function appReducer(state, action) {
@@ -63,6 +70,14 @@ function appReducer(state, action) {
       return { ...state, notifications: action.payload };
     case 'SET_VORTEX_STATE':
       return { ...state, vortexState: action.payload };
+    case 'SET_TIMERS':
+      return { ...state, timers: action.payload };
+    case 'SET_ROUTINE':
+      return { ...state, routine: action.payload };
+    case 'TIMER_DONE':
+      return { ...state, lastTimerDone: action.payload };
+    case 'CLEAR_TIMER_DONE':
+      return { ...state, lastTimerDone: null };
     default:
       return state;
   }
@@ -152,6 +167,15 @@ function handleMessage(msg, dispatch) {
     case 'navigate':
       dispatch({ type: 'SET_PAGE', payload: msg.page });
       break;
+    case 'timers_update':
+      dispatch({ type: 'SET_TIMERS', payload: msg.timers });
+      break;
+    case 'timer_done':
+      dispatch({ type: 'TIMER_DONE', payload: msg.timer });
+      break;
+    case 'routine_update':
+      dispatch({ type: 'SET_ROUTINE', payload: msg.routine });
+      break;
     default:
       break;
   }
@@ -168,6 +192,7 @@ function PageRouter({ page }) {
     case 'dashboard': return <Dashboard />;
     case 'devices':   return <Devices />;
     case 'cameras':   return <Cameras />;
+    case 'routine':   return <Routine />;
     case 'ambient':
     default:          return <Ambient />;
   }

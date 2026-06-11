@@ -277,6 +277,23 @@ class TestAudioManager(unittest.TestCase):
         mock_mic.close.assert_called_once()
         mock_speaker.stop.assert_called_once()
 
+    @patch("audio.audio_manager.WakeWordDetector")
+    @patch("audio.audio_manager.Speaker")
+    @patch("audio.audio_manager.Microphone")
+    def test_play_chime_delegates_to_speaker(
+        self, mock_mic_cls, mock_speaker_cls, mock_wwd_cls
+    ):
+        """play_chime() should delegate to the speaker with the given chime type."""
+        mock_speaker = MagicMock()
+        mock_speaker_cls.return_value = mock_speaker
+
+        from audio.audio_manager import AudioManager
+        manager = AudioManager()
+        run_async(manager.start())
+        manager.play_chime("done")
+
+        mock_speaker.play_chime.assert_called_once_with("done")
+
 
 if __name__ == "__main__":
     unittest.main()
