@@ -37,6 +37,8 @@ RIVER_SONG_HEALTH_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSIO
 RIVER_SONG_SETUP_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/setup"
 RIVER_SONG_TIMERS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/timers"
 RIVER_SONG_ROUTINE_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/routine"
+RIVER_SONG_ANNOUNCE_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/announce"
+RIVER_SONG_INTERCOM_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/intercom"
 
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5
@@ -66,6 +68,20 @@ RESTART_DELAY_SECONDS: float = 2.0   # Grace period before restarting after pair
 
 MAX_TIMER_DURATION_SECONDS: int = 24 * 60 * 60   # 24 hours
 ROUTINE_DUCK_VOLUME_LEVEL: float = 0.2           # Media volume (0.0-1.0) while a routine is active
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Announcements ("Drop In" / Broadcast)
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /api/vortex/v1/announce plays a short message (and optional pre-rendered
+# TTS audio) through this unit's speaker — used for phone → house broadcasts,
+# room → room "announce to everyone" intents, and similar Alexa/Google Home
+# style "Drop In" messages. River Song is responsible for fanning an
+# announcement out to every paired unit; Vortex just plays it locally.
+
+ANNOUNCEMENT_DUCK_VOLUME_LEVEL: float = 0.15        # Media volume (0.0-1.0) while an announcement plays
+ANNOUNCEMENT_DEFAULT_DURATION_SECONDS: float = 6.0  # Fallback playback estimate for text-only announcements
+ANNOUNCEMENT_MAX_DURATION_SECONDS: float = 60.0     # Hard cap on announcement duration / ducking window
+ANNOUNCEMENT_MAX_MESSAGE_LENGTH: int = 500
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Audio — Microphone & Wake Word
@@ -171,6 +187,7 @@ INTERCOM_DISCOVERY_INTERVAL_SECONDS: int = 30
 INTERCOM_HEARTBEAT_INTERVAL_SECONDS: int = 15
 INTERCOM_PEER_TIMEOUT_SECONDS: int = 60    # Remove peer if no heartbeat
 INTERCOM_MAX_CALL_DURATION_SECONDS: int = 300
+INTERCOM_RING_TIMEOUT_SECONDS: int = 30    # Unanswered call auto-cancels after this long
 INTERCOM_AUDIO_SAMPLE_RATE: int = 16000
 INTERCOM_AUDIO_CHANNELS: int = 1
 

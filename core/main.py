@@ -27,7 +27,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from core import routines_api, setup_api, timers_api
+from core import announce_api, intercom_api, routines_api, setup_api, timers_api
+from core.announce import AnnouncementSession
 from core.config import Config, ConfigError, config
 from core.constants import (
     BACKEND_HOST,
@@ -59,6 +60,8 @@ def create_app(
     restart_callback: Optional[Callable[[], None]] = None,
     timer_manager: Optional[TimerManager] = None,
     routine_session: Optional[RoutineSession] = None,
+    announcement_session: Optional[AnnouncementSession] = None,
+    intercom_manager: Optional[Any] = None,
 ) -> FastAPI:
     """
     Build and configure the FastAPI application instance.
@@ -67,14 +70,21 @@ def create_app(
     and includes all API routers. Called once at startup.
 
     Args:
-        restart_callback: Optional zero-argument callable that restarts the
-                           process. Wired into the setup/pairing API so it
-                           can apply new configuration after pairing.
-        timer_manager:    Optional TimerManager backing /api/vortex/v1/timers.
-                           If None, those endpoints respond 503.
-        routine_session:  Optional RoutineSession backing
-                           /api/vortex/v1/routine. If None, those endpoints
-                           respond 503.
+        restart_callback:     Optional zero-argument callable that restarts
+                               the process. Wired into the setup/pairing API
+                               so it can apply new configuration after pairing.
+        timer_manager:        Optional TimerManager backing
+                               /api/vortex/v1/timers. If None, those endpoints
+                               respond 503.
+        routine_session:      Optional RoutineSession backing
+                               /api/vortex/v1/routine. If None, those
+                               endpoints respond 503.
+        announcement_session: Optional AnnouncementSession backing
+                               /api/vortex/v1/announce. If None, that
+                               endpoint responds 503.
+        intercom_manager:     Optional intercom.intercom_manager.IntercomManager
+                               backing /api/vortex/v1/intercom. If None, those
+                               endpoints respond 503.
 
     Returns:
         A fully configured FastAPI application.
@@ -111,6 +121,14 @@ def create_app(
 
     routines_api.set_routine_session(routine_session)
     app.include_router(routines_api.router)
+
+    # Multi-room announcements ("Drop In" broadcasts) and room-to-room
+    # intercom calls — see core/announce_api.py, core/intercom_api.py.
+    announce_api.set_announcement_session(announcement_session)
+    app.include_router(announce_api.router)
+
+    intercom_api.set_intercom_manager(intercom_manager)
+    app.include_router(intercom_api.router)
 
     # Real-time event stream to the frontend (display mode changes, timer
     # updates, guided routine steps, etc.) — see core/ws_hub.py.
@@ -202,6 +220,7 @@ class RiverVortex:
         self._discovery_service = None
         self._timer_manager = None
         self._routine_session = None
+        self._announcement_session = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -418,7 +437,12 @@ class RiverVortex:
         if config.get("cap_intercom", True) and config.get("intercom_enabled", True):
             try:
                 from intercom.intercom_manager import IntercomManager
-                self._intercom_manager = IntercomManager()
+                self._intercom_manager = IntercomManager(
+                    microphone=self._audio_manager.microphone if self._audio_manager else None,
+                    speaker=self._audio_manager.speaker if self._audio_manager else None,
+                )
+                self._intercom_manager.on_incoming_call(self._on_intercom_incoming_call)
+                self._intercom_manager.on_call_ended(self._on_intercom_call_ended)
                 await self._intercom_manager.start()
                 logger.info("[OK] Intercom manager started.")
             except Exception as exc:
@@ -426,11 +450,13 @@ class RiverVortex:
         else:
             logger.info("[SKIP] Intercom subsystem disabled.")
 
-        # ── Timers & Guided Routines ─────────────────────────────────────────
+        # ── Timers, Guided Routines & Announcements ─────────────────────────
         # Stateful helpers driven by River Song's voice intent handlers via
-        # /api/vortex/v1/timers and /api/vortex/v1/routine. Timers chime
-        # through the speaker when they elapse; routines duck background
-        # media (if HA is connected) and switch the display to "routine" mode.
+        # /api/vortex/v1/timers, /api/vortex/v1/routine, and
+        # /api/vortex/v1/announce. Timers chime through the speaker when they
+        # elapse; routines and announcements duck background media (if HA is
+        # connected) — routines switch the display to "routine" mode, and
+        # announcements show a transient on-screen banner.
         try:
             self._timer_manager = TimerManager(on_timer_done=self._on_timer_done)
             self._routine_session = RoutineSession(
@@ -439,9 +465,13 @@ class RiverVortex:
                     self._screen_manager.set_mode if self._screen_manager else None
                 ),
             )
-            logger.info("[OK] Timers and guided routines ready.")
+            self._announcement_session = AnnouncementSession(
+                device_control=self._device_control,
+                audio_manager=self._audio_manager,
+            )
+            logger.info("[OK] Timers, guided routines, and announcements ready.")
         except Exception as exc:
-            logger.error("Timers/routines failed to initialize: %s", exc)
+            logger.error("Timers/routines/announcements failed to initialize: %s", exc)
 
         # ── Watchdog ──────────────────────────────────────────────────────────
         try:
@@ -477,6 +507,28 @@ class RiverVortex:
             self._audio_manager.play_chime("done")
         logger.info("Timer '%s' finished.", timer.get("label", "Timer"))
 
+    def _on_intercom_incoming_call(self, peer_unit_id: str) -> None:
+        """
+        Callback invoked by IntercomManager when another unit places a
+        "Drop In" call to this one.
+
+        Plays the intercom chime and brings the dashboard to the front so
+        the incoming-call banner is visible. Runs synchronously on the
+        asyncio event loop thread.
+
+        Args:
+            peer_unit_id: The unit ID of the calling Vortex unit.
+        """
+        if self._audio_manager:
+            self._audio_manager.play_chime("intercom")
+        if self._screen_manager:
+            asyncio.create_task(self._screen_manager.go_dashboard())
+        logger.info("Incoming intercom call from '%s'.", peer_unit_id)
+
+    def _on_intercom_call_ended(self) -> None:
+        """Callback invoked by IntercomManager when an intercom call ends."""
+        logger.info("Intercom call ended.")
+
     # ─────────────────────────────────────────────────────────────────────────
     # Backend Server
     # ─────────────────────────────────────────────────────────────────────────
@@ -492,6 +544,8 @@ class RiverVortex:
             restart_callback=self._trigger_restart,
             timer_manager=self._timer_manager,
             routine_session=self._routine_session,
+            announcement_session=self._announcement_session,
+            intercom_manager=self._intercom_manager,
         )
 
         host = config.get("backend_host", BACKEND_HOST)

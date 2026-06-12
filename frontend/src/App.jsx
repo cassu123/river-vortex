@@ -20,6 +20,8 @@ import Devices from './pages/Devices';
 import Cameras from './pages/Cameras';
 import Routine from './pages/Routine';
 import Setup from './pages/Setup';
+import AnnouncementBanner from './components/AnnouncementBanner';
+import IntercomBanner from './components/IntercomBanner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App Context — shared state accessible to all child components
@@ -48,6 +50,10 @@ const initialState = {
   routine: { active: false },
   /** Most recently elapsed timer, for a transient "time's up" banner */
   lastTimerDone: null,
+  /** Room-to-room "Drop In" intercom state (see core/intercom_api.py) */
+  intercom: { state: 'idle', peer: null },
+  /** Most recent "Drop In" / broadcast announcement (see core/announce.py) */
+  announcement: null,
 };
 
 function appReducer(state, action) {
@@ -78,6 +84,12 @@ function appReducer(state, action) {
       return { ...state, lastTimerDone: action.payload };
     case 'CLEAR_TIMER_DONE':
       return { ...state, lastTimerDone: null };
+    case 'SET_INTERCOM':
+      return { ...state, intercom: action.payload };
+    case 'SET_ANNOUNCEMENT':
+      return { ...state, announcement: action.payload };
+    case 'CLEAR_ANNOUNCEMENT':
+      return { ...state, announcement: null };
     default:
       return state;
   }
@@ -176,6 +188,12 @@ function handleMessage(msg, dispatch) {
     case 'routine_update':
       dispatch({ type: 'SET_ROUTINE', payload: msg.routine });
       break;
+    case 'intercom_update':
+      dispatch({ type: 'SET_INTERCOM', payload: msg.intercom });
+      break;
+    case 'announcement':
+      dispatch({ type: 'SET_ANNOUNCEMENT', payload: msg.announcement });
+      break;
     default:
       break;
   }
@@ -255,6 +273,8 @@ export default function App() {
     <AppContext.Provider value={contextValue}>
       <div style={styles.root}>
         <PageRouter page={state.page} />
+        <IntercomBanner />
+        <AnnouncementBanner />
         <VortexStateOverlay vortexState={state.vortexState} />
       </div>
     </AppContext.Provider>

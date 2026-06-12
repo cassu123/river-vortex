@@ -123,6 +123,16 @@ class AudioManager:
         """Unmute the microphone."""
         self._microphone.unmute()
 
+    @property
+    def microphone(self) -> Microphone:
+        """The underlying Microphone instance — used by IntercomManager for call audio."""
+        return self._microphone
+
+    @property
+    def speaker(self) -> Speaker:
+        """The underlying Speaker instance — used by IntercomManager for call audio."""
+        return self._speaker
+
     # ─────────────────────────────────────────────────────────────────────────
     # Wake Word → Command Flow
     # ─────────────────────────────────────────────────────────────────────────

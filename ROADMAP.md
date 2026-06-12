@@ -57,19 +57,40 @@ automatic background-music ducking.
 
 ---
 
-## Phase 2 — Multi-Room Audio & Announcements ("Drop In")
+## Phase 2 — Multi-Room Audio & Announcements ("Drop In") ✅ DONE
 
 **Goal:** "Announce to all rooms" and "Drop In" on a specific room, the way
 Alexa/Google Home broadcast across a household.
 
-- `POST /api/vortex/v1/announce` — Vortex receives a TTS audio clip (or text
-  for local synthesis) from River Song and plays it immediately, ducking
-  media first (reuse the Phase 1 ducking helper).
-- Extend `intercom/intercom_manager.py` so a "Drop In" request opens a live
-  two-way audio channel to a specific unit, with an on-screen incoming-call
-  banner (reusing the `notification` display mode).
-- Broadcast `announcement` / `intercom_incoming` events over `/api/ws` so the
-  frontend can show "📢 Announcement" / "📞 Drop In from Kitchen" overlays.
+- **Announcements** (`core/announce.py`, `core/announce_api.py`)
+  - `POST /api/vortex/v1/announce` — River Song (or the River Song phone app,
+    via River Song) posts a message; Vortex ducks any currently-playing media
+    (`ANNOUNCEMENT_DUCK_VOLUME_LEVEL`), plays the "intercom" chime, broadcasts
+    an `announcement` event over `/api/ws`, and restores media volume after
+    the message's estimated/explicit duration. Covers phone → house
+    broadcasts and room → room messages (River Song fans the request out to
+    every unit). House → phone notifications reuse the existing voice/
+    notification pipeline — no new Vortex API needed.
+  - Overlapping announcements don't double-duck; ducked volumes are restored
+    once the last announcement's timer elapses.
+- **Room-to-Room Intercom / "Drop In"** (`intercom/intercom_manager.py`,
+  `core/intercom_api.py`)
+  - `GET /api/vortex/v1/intercom` (state), `GET /api/vortex/v1/intercom/peers`
+    (discoverable units), `POST /api/vortex/v1/intercom/call`,
+    `POST /api/vortex/v1/intercom/answer`, `POST /api/vortex/v1/intercom/decline`,
+    `DELETE /api/vortex/v1/intercom` (hang up).
+  - Full UDP call-signaling protocol (`call_request` / `call_accept` /
+    `call_decline` / `call_busy` / `call_end`) plus a live two-way raw PCM
+    audio stream once a call is active, using the existing
+    `Microphone`/`Speaker` I/O (`Speaker.play_raw` / `Speaker.stop_raw`).
+  - Unanswered calls auto-cancel after `INTERCOM_RING_TIMEOUT_SECONDS`; active
+    calls auto-end after `INTERCOM_MAX_CALL_DURATION_SECONDS`.
+  - Incoming calls play the "intercom" chime and switch the display to the
+    dashboard.
+- Broadcasts `announcement` and `intercom_update` events over `/api/ws` so the
+  frontend shows "📢 Announcement" / "📞 Drop In from Kitchen" overlays
+  (`AnnouncementBanner`, `IntercomBanner`).
+- **Tests:** `tests/test_announce.py`, `tests/test_intercom.py`.
 
 ---
 
@@ -123,7 +144,7 @@ reflect *who* it's talking to.
 | 1 | WebSocket broadcast hub | ✅ Done |
 | 1 | Timers & Alarms | ✅ Done |
 | 1 | Guided Routines / Cooking Mode + media ducking | ✅ Done |
-| 2 | Multi-room announcements / Drop In | 🔜 Planned |
+| 2 | Multi-room announcements / Drop In | ✅ Done |
 | 3 | Lists & reminders display | 🔜 Planned |
 | 4 | Routine presets & proactive notifications | 🔜 Planned |
 | 5 | Multi-user voice personalization | 🔜 Planned (stretch) |

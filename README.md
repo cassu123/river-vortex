@@ -14,7 +14,8 @@
 | **Camera feeds** | Live snapshots and streams from all HA camera entities. |
 | **Timers & alarms** | Voice-activated countdown timers with on-screen display and a chime when they elapse. |
 | **Guided routines** | Step-by-step walkthroughs (cooking mode, workout mode, bedtime checklists) that duck background music and switch the display for the duration. |
-| **Intercom** | Peer-to-peer audio between Vortex units in different rooms via UDP multicast. |
+| **Announcements / "Drop In"** | Broadcast a message to every Vortex unit (phone → house or room → room), with automatic media ducking and an on-screen banner. |
+| **Intercom** | Peer-to-peer audio between Vortex units in different rooms via UDP multicast, with ringing/answer/decline call flow. |
 | **4G LTE fallback** | Automatic cellular failover when home WiFi is unavailable. |
 | **Privacy controls** | Hardware GPIO LED indicators for mic and camera mute state. |
 | **Zero-touch setup** | Pairs with the River Song app like a Google Home device — discoverable via mDNS, paired with an on-screen PIN. No SSH or config files required. |
@@ -178,12 +179,13 @@ into Ambient mode.
 
 ---
 
-## Real-Time Events, Timers & Guided Routines
+## Real-Time Events, Timers, Routines & Announcements
 
 These features are driven by River Song's voice intent handlers, which call
 the small REST APIs below. Vortex owns the countdown/step state, the
-on-screen display, and (for routines) ducking background media. See
-[ROADMAP.md](ROADMAP.md) for the full Alexa/Google Home feature parity plan.
+on-screen display, and (for routines/announcements) ducking background
+media. See [ROADMAP.md](ROADMAP.md) for the full Alexa/Google Home feature
+parity plan.
 
 ### WebSocket event hub — `/api/ws`
 
@@ -196,6 +198,8 @@ through `core/ws_hub.py`. Relevant message types added in this phase:
 | `timers_update` | `{ "timers": [...] }` | A timer is created, cancelled, or elapses. |
 | `timer_done` | `{ "timer": {...} }` | A timer reaches zero (also plays a chime). |
 | `routine_update` | `{ "routine": {...} }` | A routine starts, advances, or stops. |
+| `announcement` | `{ "announcement": {...} }` | A "Drop In" / broadcast announcement is made (`AnnouncementBanner`). |
+| `intercom_update` | `{ "intercom": {...} }` | The room-to-room intercom state changes (idle/calling/ringing/active, `IntercomBanner`). |
 
 ### Timers API — `/api/vortex/v1/timers`
 
@@ -222,6 +226,39 @@ While a routine is active, any currently-playing Home Assistant media
 players are ducked to `ROUTINE_DUCK_VOLUME_LEVEL` (see `core/constants.py`)
 and restored to their original volume when the routine ends. The display
 switches to a dedicated "routine" mode for the duration.
+
+### Announcements ("Drop In") API — `/api/vortex/v1/announce`
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/announce` | `POST` | Broadcast a message: `{"message": "Dinner's ready!", "source": "Kitchen Vortex", "priority": "normal", "duration_seconds": 8}`. Returns `202` with the announcement (incl. `id` and `timestamp`). |
+
+Phone → house and room → room broadcasts are both River Song fanning this
+same call out to the relevant units — Vortex's only job is to play it
+locally. House → phone notifications reuse the existing voice/notification
+pipeline.
+
+While an announcement plays, any currently-playing Home Assistant media
+players are ducked to `ANNOUNCEMENT_DUCK_VOLUME_LEVEL` and restored once the
+message's `duration_seconds` (or an estimate based on its length, capped at
+`ANNOUNCEMENT_MAX_DURATION_SECONDS`) elapses. The "intercom" chime plays
+first.
+
+### Intercom ("Drop In" calls) API — `/api/vortex/v1/intercom`
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/intercom` | `GET` | Current call state: `{"state": "idle\|calling\|ringing\|active", "peer": {...} or null}`. |
+| `/api/vortex/v1/intercom/peers` | `GET` | Other Vortex units discovered on the local network. |
+| `/api/vortex/v1/intercom/call` | `POST` | Start a call: `{"peer_unit_id": "vortex-kitchen-01"}`. `409` if already on a call or the peer is unknown. |
+| `/api/vortex/v1/intercom/answer` | `POST` | Answer an incoming (`ringing`) call. `409` if not ringing. |
+| `/api/vortex/v1/intercom/decline` | `POST` | Decline an incoming (`ringing`) call. `409` if not ringing. |
+| `/api/vortex/v1/intercom` | `DELETE` | Hang up / cancel the current call (idempotent). |
+
+Once a call is `active`, audio streams directly between the two units over
+UDP (raw PCM via `Microphone`/`Speaker`). Unanswered calls auto-cancel after
+`INTERCOM_RING_TIMEOUT_SECONDS`; active calls auto-end after
+`INTERCOM_MAX_CALL_DURATION_SECONDS`.
 
 ---
 
