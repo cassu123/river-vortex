@@ -27,7 +27,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from core import announce_api, intercom_api, routines_api, setup_api, timers_api
+from core import announce_api, intercom_api, lists_api, routines_api, setup_api, timers_api
 from core.announce import AnnouncementSession
 from core.config import Config, ConfigError, config
 from core.constants import (
@@ -41,6 +41,7 @@ from core.constants import (
     VERSION,
     VortexState,
 )
+from core.lists import ListsStore
 from core.routines import RoutineSession
 from core.timers import TimerManager
 from core.ws_hub import ws_hub
@@ -62,6 +63,7 @@ def create_app(
     routine_session: Optional[RoutineSession] = None,
     announcement_session: Optional[AnnouncementSession] = None,
     intercom_manager: Optional[Any] = None,
+    lists_store: Optional[ListsStore] = None,
 ) -> FastAPI:
     """
     Build and configure the FastAPI application instance.
@@ -84,6 +86,10 @@ def create_app(
                                endpoint responds 503.
         intercom_manager:     Optional intercom.intercom_manager.IntercomManager
                                backing /api/vortex/v1/intercom. If None, those
+                               endpoints respond 503.
+        lists_store:          Optional ListsStore backing
+                               /api/vortex/v1/lists and
+                               /api/vortex/v1/reminders. If None, those
                                endpoints respond 503.
 
     Returns:
@@ -129,6 +135,12 @@ def create_app(
 
     intercom_api.set_intercom_manager(intercom_manager)
     app.include_router(intercom_api.router)
+
+    # Shopping/to-do lists and upcoming reminders — thin local cache for
+    # snapshots pushed by River Song (see core/lists_api.py).
+    lists_api.set_lists_store(lists_store)
+    app.include_router(lists_api.router)
+    app.include_router(lists_api.reminders_router)
 
     # Real-time event stream to the frontend (display mode changes, timer
     # updates, guided routine steps, etc.) — see core/ws_hub.py.
@@ -221,6 +233,7 @@ class RiverVortex:
         self._timer_manager = None
         self._routine_session = None
         self._announcement_session = None
+        self._lists_store = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -473,6 +486,18 @@ class RiverVortex:
         except Exception as exc:
             logger.error("Timers/routines/announcements failed to initialize: %s", exc)
 
+        # ── Lists & Reminders ────────────────────────────────────────────────
+        # Thin local cache for shopping/to-do lists and upcoming reminders —
+        # River Song owns persistence and pushes snapshots via
+        # /api/vortex/v1/lists and /api/vortex/v1/reminders; Vortex caches
+        # them for instant display and broadcasts lists_update /
+        # reminders_update so every connected display stays in sync.
+        try:
+            self._lists_store = ListsStore()
+            logger.info("[OK] Lists & reminders cache ready.")
+        except Exception as exc:
+            logger.error("Lists & reminders cache failed to initialize: %s", exc)
+
         # ── Watchdog ──────────────────────────────────────────────────────────
         try:
             from safety.watchdog import Watchdog
@@ -546,6 +571,7 @@ class RiverVortex:
             routine_session=self._routine_session,
             announcement_session=self._announcement_session,
             intercom_manager=self._intercom_manager,
+            lists_store=self._lists_store,
         )
 
         host = config.get("backend_host", BACKEND_HOST)

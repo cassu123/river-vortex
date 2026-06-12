@@ -19,9 +19,11 @@ import Dashboard from './pages/Dashboard';
 import Devices from './pages/Devices';
 import Cameras from './pages/Cameras';
 import Routine from './pages/Routine';
+import Lists from './pages/Lists';
 import Setup from './pages/Setup';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import IntercomBanner from './components/IntercomBanner';
+import ReminderBanner from './components/ReminderBanner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App Context — shared state accessible to all child components
@@ -54,6 +56,10 @@ const initialState = {
   intercom: { state: 'idle', peer: null },
   /** Most recent "Drop In" / broadcast announcement (see core/announce.py) */
   announcement: null,
+  /** Shopping/to-do lists snapshot (see core/lists.py) */
+  lists: [],
+  /** Upcoming reminders snapshot (see core/lists.py) */
+  reminders: [],
 };
 
 function appReducer(state, action) {
@@ -90,6 +96,10 @@ function appReducer(state, action) {
       return { ...state, announcement: action.payload };
     case 'CLEAR_ANNOUNCEMENT':
       return { ...state, announcement: null };
+    case 'SET_LISTS':
+      return { ...state, lists: action.payload };
+    case 'SET_REMINDERS':
+      return { ...state, reminders: action.payload };
     default:
       return state;
   }
@@ -194,6 +204,12 @@ function handleMessage(msg, dispatch) {
     case 'announcement':
       dispatch({ type: 'SET_ANNOUNCEMENT', payload: msg.announcement });
       break;
+    case 'lists_update':
+      dispatch({ type: 'SET_LISTS', payload: msg.lists });
+      break;
+    case 'reminders_update':
+      dispatch({ type: 'SET_REMINDERS', payload: msg.reminders });
+      break;
     default:
       break;
   }
@@ -211,6 +227,7 @@ function PageRouter({ page }) {
     case 'devices':   return <Devices />;
     case 'cameras':   return <Cameras />;
     case 'routine':   return <Routine />;
+    case 'lists':     return <Lists />;
     case 'ambient':
     default:          return <Ambient />;
   }
@@ -275,6 +292,7 @@ export default function App() {
         <PageRouter page={state.page} />
         <IntercomBanner />
         <AnnouncementBanner />
+        <ReminderBanner />
         <VortexStateOverlay vortexState={state.vortexState} />
       </div>
     </AppContext.Provider>

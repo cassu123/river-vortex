@@ -14,6 +14,8 @@
 | **Camera feeds** | Live snapshots and streams from all HA camera entities. |
 | **Timers & alarms** | Voice-activated countdown timers with on-screen display and a chime when they elapse. |
 | **Guided routines** | Step-by-step walkthroughs (cooking mode, workout mode, bedtime checklists) that duck background music and switch the display for the duration. |
+| **Routine presets** | "Good Morning" / "Good Night" / "Leaving Home" style one-tap routines that activate a Home Assistant scene and start a guided checklist. |
+| **Lists & reminders** | Shopping/to-do lists with tap-to-check items, and an on-screen banner for reminders due soon — synced live from River Song. |
 | **Announcements / "Drop In"** | Broadcast a message to every Vortex unit (phone → house or room → room), with automatic media ducking and an on-screen banner. |
 | **Intercom** | Peer-to-peer audio between Vortex units in different rooms via UDP multicast, with ringing/answer/decline call flow. |
 | **4G LTE fallback** | Automatic cellular failover when home WiFi is unavailable. |
@@ -200,6 +202,8 @@ through `core/ws_hub.py`. Relevant message types added in this phase:
 | `routine_update` | `{ "routine": {...} }` | A routine starts, advances, or stops. |
 | `announcement` | `{ "announcement": {...} }` | A "Drop In" / broadcast announcement is made (`AnnouncementBanner`). |
 | `intercom_update` | `{ "intercom": {...} }` | The room-to-room intercom state changes (idle/calling/ringing/active, `IntercomBanner`). |
+| `lists_update` | `{ "lists": [...] }` | A list snapshot is pushed or a list item is toggled (`Lists` page). |
+| `reminders_update` | `{ "reminders": [...] }` | A reminders snapshot is pushed (`ReminderBanner`). |
 
 ### Timers API — `/api/vortex/v1/timers`
 
@@ -221,11 +225,37 @@ step-by-step walkthrough.
 | `/api/vortex/v1/routine/next` | `POST` | Advance to the next step (stops the routine on the last step). |
 | `/api/vortex/v1/routine/previous` | `POST` | Go back one step (no-op on the first step). |
 | `/api/vortex/v1/routine` | `DELETE` | End the routine early. |
+| `/api/vortex/v1/routine/presets` | `GET` | List available routine preset templates (name, title, step count, optional scene). |
+| `/api/vortex/v1/routine/presets/{name}` | `POST` | Activate a preset: best-effort activates its Home Assistant `scene` (if any), then starts its guided routine. `404` for an unknown preset name. |
 
 While a routine is active, any currently-playing Home Assistant media
 players are ducked to `ROUTINE_DUCK_VOLUME_LEVEL` (see `core/constants.py`)
 and restored to their original volume when the routine ends. The display
 switches to a dedicated "routine" mode for the duration.
+
+Routine presets ("Good Morning", "Good Night", "Leaving Home", etc.) are
+defined in `units/routine_presets.json` — edit freely per-unit to add your
+own. Each preset has a `title`, ordered `steps` (same shape as the routine
+API above), and an optional `scene` (a Home Assistant `scene.xxx` entity ID
+activated before the routine starts).
+
+### Lists & Reminders API — `/api/vortex/v1/lists` and `/api/vortex/v1/reminders`
+
+Shopping/to-do lists and upcoming reminders are owned by River Song — Vortex
+caches the latest snapshot for instant on-screen display and relays touch
+actions back.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/lists` | `GET` | Return the cached lists snapshot: `{"lists": [{"id", "name", "items": [{"id", "text", "checked"}, ...]}, ...]}`. |
+| `/api/vortex/v1/lists` | `POST` | Replace the cached lists snapshot (pushed by River Song): `{"lists": [...]}`. Broadcasts `lists_update`. |
+| `/api/vortex/v1/lists/{list_id}/items/{item_id}/toggle` | `POST` | Flip an item's `checked` state. Returns the updated list. `404` if the list or item doesn't exist. |
+| `/api/vortex/v1/reminders` | `GET` | Return the cached reminders snapshot: `{"reminders": [{"id", "text", "due"}, ...]}`. |
+| `/api/vortex/v1/reminders` | `POST` | Replace the cached reminders snapshot (pushed by River Song): `{"reminders": [...]}`. Broadcasts `reminders_update`. |
+
+The frontend's `Lists` page renders the cached lists with tap-to-toggle
+items, and `ReminderBanner` shows any reminder due within the next hour as
+an on-screen card.
 
 ### Announcements ("Drop In") API — `/api/vortex/v1/announce`
 

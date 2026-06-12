@@ -94,34 +94,53 @@ Alexa/Google Home broadcast across a household.
 
 ---
 
-## Phase 3 — Lists & Reminders Display Surface
+## Phase 3 — Lists & Reminders Display Surface ✅ DONE
 
 **Goal:** Shopping lists, to-do lists, and reminders visible and
 checkable/snoozable from the touchscreen — data is owned by River Song,
 Vortex just displays the latest snapshot and relays touch actions.
 
-- `GET /api/vortex/v1/lists`, `POST /api/vortex/v1/lists/{list_id}/items/{item_id}/toggle`
-  — thin pass-through that Vortex caches locally for instant display and
-  forwards to River Song for persistence.
-- `reminders_update` WebSocket event — upcoming reminder banner via the
-  existing notification overlay.
-- New `Lists` page in the frontend (checklist UI, similar styling to
-  `Routine`).
+- **Lists & Reminders cache** (`core/lists.py`, `core/lists_api.py`)
+  - `GET/POST /api/vortex/v1/lists`,
+    `POST /api/vortex/v1/lists/{list_id}/items/{item_id}/toggle` — thin
+    pass-through that Vortex caches locally (`ListsStore`) for instant
+    display and forwards to River Song for persistence.
+  - `GET/POST /api/vortex/v1/reminders` — same thin-cache pattern for
+    upcoming reminders.
+  - Broadcasts `lists_update` / `reminders_update` over `/api/ws` whenever
+    the snapshot changes or an item is toggled.
+- **Frontend**
+  - New `Lists` page — checklist UI grouped by list, tap-to-toggle items,
+    styled like `Routine`. Reachable via a new "📝 Lists" dashboard nav tab.
+  - New `ReminderBanner` — shows reminders due within the next hour as a
+    small overlay card, similar in style to `NotificationBar`.
+  - `App.jsx` now handles `lists_update` and `reminders_update` WebSocket
+    messages.
+- **Tests:** `tests/test_lists.py`.
 
 ---
 
-## Phase 4 — Routine Presets & Proactive Notifications
+## Phase 4 — Routine Presets & Proactive Notifications ✅ DONE
 
 **Goal:** "Good Morning" / "Good Night" / "Leaving Home" style routines that
 combine a Home Assistant scene activation with a guided checklist, plus
 proactive (non-voice-triggered) notifications surfaced on-device.
 
-- Preset routine templates stored alongside `units/vortex_profile.json`,
-  triggerable via `/api/vortex/v1/routine/presets/{name}`.
+- **Routine Presets** (`units/routine_presets.json`, `core/routines.py`,
+  `core/routines_api.py`)
+  - `GET /api/vortex/v1/routine/presets` — lists available preset templates
+    (name, title, step count, optional scene).
+  - `POST /api/vortex/v1/routine/presets/{name}` — activates the preset's
+    Home Assistant scene (if any, best-effort) and starts its guided
+    routine via the existing `RoutineSession`.
+  - Ships with `good_morning`, `good_night`, and `leaving_home` presets;
+    edit `units/routine_presets.json` freely per-unit.
 - River Song pushes proactive notifications (weather alerts, calendar
   reminders, "you left the garage door open") through the existing
-  `notifications_update` channel — no new Vortex API needed, just
-  documentation + frontend polish for priority styling.
+  `notifications_update` channel — no new Vortex API needed.
+- **Frontend polish:** `NotificationBar` now shows a default icon per
+  priority level (ℹ️/🔔/⚠️/🚨) when a notification doesn't specify its own.
+- **Tests:** preset coverage added to `tests/test_routines.py`.
 
 ---
 
@@ -145,6 +164,6 @@ reflect *who* it's talking to.
 | 1 | Timers & Alarms | ✅ Done |
 | 1 | Guided Routines / Cooking Mode + media ducking | ✅ Done |
 | 2 | Multi-room announcements / Drop In | ✅ Done |
-| 3 | Lists & reminders display | 🔜 Planned |
-| 4 | Routine presets & proactive notifications | 🔜 Planned |
+| 3 | Lists & reminders display | ✅ Done |
+| 4 | Routine presets & proactive notifications | ✅ Done |
 | 5 | Multi-user voice personalization | 🔜 Planned (stretch) |

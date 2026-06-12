@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core.constants import RIVER_SONG_ROUTINE_BASE
-from core.routines import RoutineError, RoutineSession
+from core.routines import RoutineError, RoutinePresetError, RoutineSession, load_routine_presets
 
 logger = logging.getLogger(__name__)
 
@@ -109,3 +109,40 @@ async def stop_routine() -> Dict[str, Any]:
         return await _get_session().stop()
     except RoutineError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Routine presets — "Good Morning" / "Good Night" / "Leaving Home", etc.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/presets")
+async def list_routine_presets() -> Dict[str, Any]:
+    """List available routine preset templates (units/routine_presets.json)."""
+    presets = load_routine_presets()
+    return {
+        "presets": [
+            {
+                "name": name,
+                "title": preset.get("title", name),
+                "step_count": len(preset.get("steps", [])),
+                "scene": preset.get("scene"),
+            }
+            for name, preset in presets.items()
+        ]
+    }
+
+
+@router.post("/presets/{name}", status_code=201)
+async def start_routine_preset(name: str) -> Dict[str, Any]:
+    """
+    Activate a named routine preset, replacing any in-progress routine.
+
+    Optionally activates a Home Assistant scene first (see
+    units/routine_presets.json), then starts the preset's guided routine.
+    """
+    try:
+        return await _get_session().start_preset(name)
+    except RoutinePresetError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RoutineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

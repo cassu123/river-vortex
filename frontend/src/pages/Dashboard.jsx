@@ -113,6 +113,7 @@ export default function Dashboard() {
         <NavButton icon="🏠" label="Dashboard" page="dashboard" active={page === 'dashboard'} onClick={navigate} />
         <NavButton icon="💡" label="Devices"   page="devices"   active={page === 'devices'}   onClick={navigate} />
         <NavButton icon="📷" label="Cameras"   page="cameras"   active={page === 'cameras'}   onClick={navigate} />
+        <NavButton icon="📝" label="Lists"     page="lists"     active={page === 'lists'}     onClick={navigate} />
       </nav>
     </div>
   );

@@ -16,10 +16,12 @@ License:     Internal Use Only — River Song AI / riversongai.com
 ================================================================================
 """
 
+import json
 import logging
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from core.constants import ROUTINE_DUCK_VOLUME_LEVEL
+from core.constants import ROUTINE_DUCK_VOLUME_LEVEL, ROUTINE_PRESETS_PATH
 from core.ws_hub import ws_hub
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,58 @@ logger = logging.getLogger(__name__)
 
 class RoutineError(Exception):
     """Raised for invalid routine operations (e.g., advancing with none active)."""
+
+
+class RoutinePresetError(RoutineError):
+    """Raised when a requested routine preset does not exist."""
+
+
+def load_routine_presets(path: str = ROUTINE_PRESETS_PATH) -> Dict[str, Dict[str, Any]]:
+    """
+    Load routine preset templates (e.g. "Good Morning", "Good Night",
+    "Leaving Home") from units/routine_presets.json.
+
+    Presets are optional — a missing or malformed file simply yields no
+    presets rather than raising.
+
+    Args:
+        path: Path to the routine presets JSON file.
+
+    Returns:
+        Dict mapping preset name -> {"title", "steps", optional "scene"}.
+    """
+    preset_path = Path(path)
+    if not preset_path.exists():
+        return {}
+
+    try:
+        with preset_path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Failed to load routine presets from %s: %s", preset_path, exc)
+        return {}
+
+    return {name: preset for name, preset in data.items() if not name.startswith("_")}
+
+
+def get_routine_preset(name: str, path: str = ROUTINE_PRESETS_PATH) -> Dict[str, Any]:
+    """
+    Look up a single routine preset by name.
+
+    Args:
+        name: The preset's key in routine_presets.json (e.g. "good_morning").
+        path: Path to the routine presets JSON file.
+
+    Returns:
+        The preset dict: {"title", "steps", optional "scene"}.
+
+    Raises:
+        RoutinePresetError: If no preset with this name exists.
+    """
+    preset = load_routine_presets(path).get(name)
+    if preset is None:
+        raise RoutinePresetError(f"Unknown routine preset '{name}'.")
+    return preset
 
 
 class RoutineSession:
@@ -48,21 +102,27 @@ class RoutineSession:
         self,
         device_control: Optional[Any] = None,
         on_mode_change: Optional[Callable[[str], Awaitable[None]]] = None,
+        presets_path: str = ROUTINE_PRESETS_PATH,
     ) -> None:
         """
         Initialize RoutineSession.
 
         Args:
             device_control: Optional home_assistant.device_control.DeviceControl
-                             used to duck/restore media player volume. If None
-                             (e.g., no Home Assistant configured), ducking is skipped.
+                             used to duck/restore media player volume and to
+                             activate Home Assistant scenes for routine presets.
+                             If None (e.g., no Home Assistant configured),
+                             ducking and scene activation are skipped.
             on_mode_change:  Optional async callable(display_mode: str) used to
                              switch the on-device display — typically
                              ScreenManager.set_mode. If None, the display is
                              left as-is.
+            presets_path:    Path to the routine presets JSON file used by
+                              start_preset().
         """
         self._device_control = device_control
         self._on_mode_change = on_mode_change
+        self._presets_path = presets_path
         self._title: str = ""
         self._steps: List[Dict[str, Any]] = []
         self._step_index: int = 0
@@ -107,6 +167,39 @@ class RoutineSession:
         await self._broadcast()
         logger.info("Routine '%s' started (%d step(s)).", title, len(steps))
         return self.get_state()
+
+    async def start_preset(self, name: str) -> Dict[str, Any]:
+        """
+        Activate a named routine preset (e.g. "good_morning", "good_night",
+        "leaving_home") — see units/routine_presets.json.
+
+        If the preset specifies a Home Assistant `scene`, it is activated
+        first (best-effort; a scene activation failure does not prevent the
+        routine from starting). The preset's title and steps are then started
+        exactly as with start().
+
+        Args:
+            name: The preset's key in routine_presets.json.
+
+        Returns:
+            The new routine state (see get_state()).
+
+        Raises:
+            RoutinePresetError: If no preset with this name exists.
+            RoutineError:       If the preset has no steps.
+        """
+        preset = get_routine_preset(name, self._presets_path)
+
+        scene = preset.get("scene")
+        if scene and self._device_control:
+            try:
+                await self._device_control.turn_on(scene)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to activate scene '%s' for preset '%s': %s", scene, name, exc
+                )
+
+        return await self.start(preset.get("title", name), preset.get("steps", []))
 
     async def next_step(self) -> Dict[str, Any]:
         """

@@ -15,6 +15,9 @@ License:     Internal Use Only — River Song AI / riversongai.com
 """
 
 import asyncio
+import json
+import os
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -211,6 +214,113 @@ class TestRoutineSession(unittest.TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Routine presets — load_routine_presets / get_routine_preset / start_preset
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRoutinePresets(unittest.TestCase):
+    """Tests for routine preset loading and RoutineSession.start_preset."""
+
+    def setUp(self):
+        patcher = patch("core.ws_hub.ws_hub.broadcast", new_callable=AsyncMock)
+        self.mock_broadcast = patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self.presets_path = os.path.join(self._tmpdir.name, "routine_presets.json")
+        with open(self.presets_path, "w", encoding="utf-8") as fh:
+            json.dump({
+                "_comment": "ignored",
+                "good_morning": {
+                    "title": "Good Morning",
+                    "scene": "scene.good_morning",
+                    "steps": [{"instruction": "Good morning!"}],
+                },
+                "no_scene": {
+                    "title": "No Scene Preset",
+                    "steps": [{"instruction": "Just steps."}],
+                },
+            }, fh)
+
+    def _make_device_control(self):
+        dc = MagicMock()
+        dc.get_all_media_players = AsyncMock(return_value=[])
+        dc.set_media_volume = AsyncMock(return_value=True)
+        dc.turn_on = AsyncMock(return_value=True)
+        return dc
+
+    def test_load_routine_presets_returns_presets_excluding_comments(self):
+        from core.routines import load_routine_presets
+        presets = load_routine_presets(self.presets_path)
+        self.assertIn("good_morning", presets)
+        self.assertIn("no_scene", presets)
+        self.assertNotIn("_comment", presets)
+
+    def test_load_routine_presets_missing_file_returns_empty(self):
+        from core.routines import load_routine_presets
+        presets = load_routine_presets(os.path.join(self._tmpdir.name, "nonexistent.json"))
+        self.assertEqual(presets, {})
+
+    def test_load_routine_presets_malformed_json_returns_empty(self):
+        from core.routines import load_routine_presets
+        bad_path = os.path.join(self._tmpdir.name, "bad.json")
+        with open(bad_path, "w", encoding="utf-8") as fh:
+            fh.write("{not valid json")
+        presets = load_routine_presets(bad_path)
+        self.assertEqual(presets, {})
+
+    def test_get_routine_preset_returns_preset(self):
+        from core.routines import get_routine_preset
+        preset = get_routine_preset("good_morning", self.presets_path)
+        self.assertEqual(preset["title"], "Good Morning")
+
+    def test_get_routine_preset_unknown_raises(self):
+        from core.routines import RoutinePresetError, get_routine_preset
+        with self.assertRaises(RoutinePresetError):
+            get_routine_preset("nonexistent", self.presets_path)
+
+    def test_start_preset_activates_scene_and_starts_routine(self):
+        from core.routines import RoutineSession
+        dc = self._make_device_control()
+        session = RoutineSession(device_control=dc, presets_path=self.presets_path)
+        state = run_async(session.start_preset("good_morning"))
+        dc.turn_on.assert_called_once_with("scene.good_morning")
+        self.assertTrue(state["active"])
+        self.assertEqual(state["title"], "Good Morning")
+
+    def test_start_preset_without_scene_skips_activation(self):
+        from core.routines import RoutineSession
+        dc = self._make_device_control()
+        session = RoutineSession(device_control=dc, presets_path=self.presets_path)
+        state = run_async(session.start_preset("no_scene"))
+        dc.turn_on.assert_not_called()
+        self.assertEqual(state["title"], "No Scene Preset")
+
+    def test_start_preset_scene_activation_failure_does_not_block_start(self):
+        from core.routines import RoutineSession
+        dc = self._make_device_control()
+        dc.turn_on = AsyncMock(side_effect=RuntimeError("HA unreachable"))
+        session = RoutineSession(device_control=dc, presets_path=self.presets_path)
+        try:
+            state = run_async(session.start_preset("good_morning"))
+        except Exception as exc:
+            self.fail(f"start_preset() raised unexpectedly: {exc}")
+        self.assertTrue(state["active"])
+
+    def test_start_preset_without_device_control_skips_scene(self):
+        from core.routines import RoutineSession
+        session = RoutineSession(device_control=None, presets_path=self.presets_path)
+        state = run_async(session.start_preset("good_morning"))
+        self.assertTrue(state["active"])
+
+    def test_start_preset_unknown_raises(self):
+        from core.routines import RoutinePresetError, RoutineSession
+        session = RoutineSession(presets_path=self.presets_path)
+        with self.assertRaises(RoutinePresetError):
+            run_async(session.start_preset("nonexistent"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # /api/vortex/v1/routine
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -293,6 +403,27 @@ class TestRoutinesAPI(unittest.TestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()["title"], "Second")
 
+    # ── Routine presets ──────────────────────────────────────────────────────
+
+    def test_list_routine_presets(self):
+        resp = self.client.get("/api/vortex/v1/routine/presets")
+        self.assertEqual(resp.status_code, 200)
+        names = [p["name"] for p in resp.json()["presets"]]
+        self.assertIn("good_morning", names)
+        self.assertIn("good_night", names)
+        self.assertIn("leaving_home", names)
+
+    def test_start_routine_preset_returns_201(self):
+        resp = self.client.post("/api/vortex/v1/routine/presets/good_morning")
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["title"], "Good Morning")
+
+    def test_start_routine_preset_unknown_returns_404(self):
+        resp = self.client.post("/api/vortex/v1/routine/presets/nonexistent")
+        self.assertEqual(resp.status_code, 404)
+
 
 class TestRoutinesAPIUnavailable(unittest.TestCase):
     """The /routine routes should respond 503 when no RoutineSession is wired."""
@@ -314,6 +445,10 @@ class TestRoutinesAPIUnavailable(unittest.TestCase):
         resp = self.client.post(
             "/api/vortex/v1/routine", json={"title": "R", "steps": SIMPLE_STEPS}
         )
+        self.assertEqual(resp.status_code, 503)
+
+    def test_start_routine_preset_503_without_session(self):
+        resp = self.client.post("/api/vortex/v1/routine/presets/good_morning")
         self.assertEqual(resp.status_code, 503)
 
 
