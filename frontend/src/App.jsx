@@ -18,6 +18,8 @@ import Ambient from './pages/Ambient';
 import Dashboard from './pages/Dashboard';
 import Devices from './pages/Devices';
 import Cameras from './pages/Cameras';
+import Orb from './presence/Orb';
+import { IDLE_PRESENCE, makePresence } from './presence/presenceContract';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App Context — shared state accessible to all child components
@@ -40,6 +42,13 @@ const initialState = {
   notifications: [],
   /** Vortex listening state: idle | listening | processing | responding */
   vortexState: 'idle',
+  /**
+   * River's presence — {state, amplitude, mood, caption}. Drives the orb
+   * today and the Rive / holographic avatar later. See presenceContract.js.
+   * NOTE: the live amplitude does NOT live here; it is carried in a ref so a
+   * 30Hz envelope cannot trigger React renders on a Pi 4.
+   */
+  presence: IDLE_PRESENCE,
 };
 
 function appReducer(state, action) {
@@ -61,7 +70,15 @@ function appReducer(state, action) {
     case 'SET_NOTIFICATIONS':
       return { ...state, notifications: action.payload };
     case 'SET_VORTEX_STATE':
-      return { ...state, vortexState: action.payload };
+      // Keep the legacy field in sync, but derive presence from it too so a
+      // backend that only sends vortex_state still drives the orb.
+      return {
+        ...state,
+        vortexState: action.payload,
+        presence: makePresence({ ...state.presence, state: action.payload }),
+      };
+    case 'SET_PRESENCE':
+      return { ...state, presence: action.payload };
     default:
       return state;
   }
@@ -83,7 +100,7 @@ export function useApp() {
 const WS_URL = `ws://${window.location.host}/api/ws`;
 const WS_RECONNECT_DELAY_MS = 3000;
 
-function useBackendSocket(dispatch) {
+function useBackendSocket(dispatch, amplitudeRef) {
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
 
@@ -100,6 +117,10 @@ function useBackendSocket(dispatch) {
 
     ws.onclose = () => {
       dispatch({ type: 'WS_DISCONNECTED' });
+      // Losing the backend means River is unreachable — show it on the orb
+      // rather than leaving a stale 'listening' state on screen forever.
+      dispatch({ type: 'SET_PRESENCE', payload: makePresence({ state: 'error' }) });
+      if (amplitudeRef) amplitudeRef.current = 0;
       reconnectTimer.current = setTimeout(connect, WS_RECONNECT_DELAY_MS);
     };
 
@@ -110,12 +131,12 @@ function useBackendSocket(dispatch) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        handleMessage(msg, dispatch);
+        handleMessage(msg, dispatch, amplitudeRef);
       } catch {
         // Ignore malformed messages
       }
     };
-  }, [dispatch]);
+  }, [dispatch, amplitudeRef]);
 
   useEffect(() => {
     connect();
@@ -128,8 +149,21 @@ function useBackendSocket(dispatch) {
   return wsRef;
 }
 
-function handleMessage(msg, dispatch) {
+function handleMessage(msg, dispatch, amplitudeRef) {
   switch (msg.type) {
+    // High-frequency TTS envelope (~30Hz). Written straight to the ref —
+    // deliberately NOT dispatched, so it never enters React's render cycle.
+    case 'amplitude':
+      if (amplitudeRef) amplitudeRef.current = Number(msg.value) || 0;
+      break;
+    case 'presence': {
+      const presence = makePresence(msg.data);
+      if (amplitudeRef && msg.data && msg.data.amplitude !== undefined) {
+        amplitudeRef.current = presence.amplitude;
+      }
+      dispatch({ type: 'SET_PRESENCE', payload: presence });
+      break;
+    }
     case 'ambient_update':
       dispatch({ type: 'UPDATE_AMBIENT', payload: msg.data });
       break;
@@ -174,18 +208,22 @@ function PageRouter({ page }) {
 // Vortex state indicator — shows listening/processing overlay
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STATE_LABELS = {
-  listening:  'Listening…',
-  processing: 'Thinking…',
-  responding: 'Speaking…',
-};
-
-function VortexStateOverlay({ vortexState }) {
-  if (vortexState === 'idle') return null;
+/**
+ * Presence overlay — River's orb, shown over whatever page is active
+ * whenever she is engaged. Hidden at rest so the ambient screen stays clean.
+ *
+ * The Ambient page renders its own full-size orb; this is the compact
+ * version that appears on the interactive pages.
+ *
+ * @param {object} props
+ * @param {object} props.presence     - Presence object from the reducer.
+ * @param {object} props.amplitudeRef - Live 0..1 envelope ref.
+ */
+function PresenceOverlay({ presence, amplitudeRef }) {
+  if (presence.state === 'idle') return null;
   return (
     <div style={styles.overlay}>
-      <div style={styles.overlayPulse} />
-      <span style={styles.overlayLabel}>{STATE_LABELS[vortexState] || ''}</span>
+      <Orb presence={presence} amplitudeRef={amplitudeRef} size={104} />
     </div>
   );
 }
@@ -196,19 +234,24 @@ function VortexStateOverlay({ vortexState }) {
 
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
-  useBackendSocket(dispatch);
+
+  // Live TTS envelope. Held in a ref, not in reducer state — see the
+  // 'amplitude' case in handleMessage for why.
+  const amplitudeRef = useRef(0);
+
+  useBackendSocket(dispatch, amplitudeRef);
 
   const navigate = useCallback((page) => {
     dispatch({ type: 'SET_PAGE', payload: page });
   }, []);
 
-  const contextValue = { state, dispatch, navigate };
+  const contextValue = { state, dispatch, navigate, amplitudeRef };
 
   return (
     <AppContext.Provider value={contextValue}>
       <div style={styles.root}>
         <PageRouter page={state.page} />
-        <VortexStateOverlay vortexState={state.vortexState} />
+        <PresenceOverlay presence={state.presence} amplitudeRef={amplitudeRef} />
       </div>
     </AppContext.Provider>
   );
@@ -230,29 +273,15 @@ const styles = {
   },
   overlay: {
     position: 'absolute',
-    bottom: 32,
+    bottom: 24,
     left: '50%',
     transform: 'translateX(-50%)',
     display: 'flex',
     alignItems: 'center',
-    gap: 12,
-    background: 'rgba(10,10,20,0.85)',
-    border: '1px solid rgba(100,160,255,0.3)',
-    borderRadius: 32,
-    padding: '10px 24px',
-    backdropFilter: 'blur(12px)',
+    justifyContent: 'center',
     zIndex: 100,
-  },
-  overlayPulse: {
-    width: 10,
-    height: 10,
-    borderRadius: '50%',
-    background: '#4a9eff',
-    animation: 'pulse 1.2s ease-in-out infinite',
-  },
-  overlayLabel: {
-    fontSize: 15,
-    color: '#a0c4ff',
-    letterSpacing: '0.04em',
+    pointerEvents: 'none',
+    // No backdrop-filter here: it is a per-frame GPU cost on the Pi 4 and
+    // the orb's own bloom already separates it from the page behind it.
   },
 };

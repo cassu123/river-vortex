@@ -1,0 +1,173 @@
+/*
+ * ============================================================================
+ * Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+ * File:     frontend/src/presence/orb.css
+ * Purpose:  Styles for River's presence orb.
+ *
+ *           PERFORMANCE CONTRACT — this file runs 16 hours a day on a
+ *           Raspberry Pi 4. Every animation here must be compositable:
+ *             - animate ONLY transform and opacity
+ *             - never animate filter, box-shadow, width/height, or background
+ *             - glow is baked into static radial-gradients, not blur filters
+ *           Violating this is the difference between 0% and 40% CPU at idle.
+ * ============================================================================
+ */
+
+.orb-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  user-select: none;
+}
+
+.orb {
+  position: relative;
+  width: var(--orb-size);
+  height: var(--orb-size);
+  display: grid;
+  place-items: center;
+  /* Promote to its own layer once, up front. */
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Every layer is centred and absolutely stacked. */
+.orb > * {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+/* ── Outer bloom ───────────────────────────────────────────────────────────
+   Baked gradient. Scales and brightens with amplitude + the state's bloom. */
+.orb__glow {
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--orb-accent) 55%, transparent) 0%,
+    color-mix(in srgb, var(--orb-warm) 22%, transparent) 38%,
+    transparent 68%
+  );
+  opacity: calc(0.35 + (var(--orb-bloom) * 0.8) + (var(--orb-amp) * 0.45));
+  transform: scale(calc(1.35 + (var(--orb-amp) * 0.28)));
+  /* No transition on transform — the rAF loop already smooths it. */
+  transition: opacity 220ms ease-out;
+}
+
+/* ── Rotating ring ─────────────────────────────────────────────────────────
+   Conic gradient masked to a thin annulus. Rotation is a pure transform. */
+.orb__ring {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--orb-silhouette) 70%, transparent) 60deg,
+    transparent 140deg,
+    color-mix(in srgb, var(--orb-accent) 50%, transparent) 220deg,
+    transparent 300deg,
+    transparent 360deg
+  );
+  /* Annulus mask — supported in Pi 4 Chromium. */
+  -webkit-mask: radial-gradient(circle, transparent 63%, #000 65%, #000 72%, transparent 74%);
+  mask: radial-gradient(circle, transparent 63%, #000 65%, #000 72%, transparent 74%);
+  opacity: calc(0.5 + (var(--orb-amp) * 0.4));
+  animation: orb-spin var(--orb-spin) linear infinite;
+  transform: scale(1.02);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────────
+   The sphere itself. Off-centre highlight reads as a light source. */
+.orb__body {
+  background:
+    radial-gradient(
+      circle at 38% 32%,
+      color-mix(in srgb, var(--orb-silhouette) 92%, transparent) 0%,
+      var(--orb-warm) 30%,
+      var(--orb-deep) 72%,
+      color-mix(in srgb, var(--orb-deep) 60%, #000) 100%
+    );
+  transform: scale(calc(0.72 + (var(--orb-amp) * 0.045)));
+  animation: orb-breathe var(--orb-breathe) ease-in-out infinite;
+}
+
+/* ── Core ──────────────────────────────────────────────────────────────────
+   Bright centre. This is the element that visibly tracks speech. */
+.orb__core {
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--orb-accent) 0%,
+    color-mix(in srgb, var(--orb-accent) 45%, transparent) 42%,
+    transparent 70%
+  );
+  opacity: calc(0.32 + (var(--orb-amp) * 0.6));
+  transform: scale(calc(0.34 + (var(--orb-amp) * 0.16)));
+}
+
+/* ── Shimmer ───────────────────────────────────────────────────────────────
+   Slow drifting highlight so the orb is never completely static. */
+.orb__shimmer {
+  background: radial-gradient(
+    ellipse 40% 26% at 42% 28%,
+    color-mix(in srgb, #fff 38%, transparent) 0%,
+    transparent 70%
+  );
+  transform: scale(0.72);
+  opacity: 0.5;
+  animation: orb-drift calc(var(--orb-breathe) * 2.4) ease-in-out infinite;
+}
+
+/* ── Caption ───────────────────────────────────────────────────────────────*/
+.orb__caption {
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--orb-silhouette, #e8c878) 78%, transparent);
+  text-align: center;
+  min-height: 1.2em;
+  transition: opacity 300ms ease;
+}
+
+/* ── State overrides ───────────────────────────────────────────────────────*/
+
+/* Thinking: the ring counter-rotates for a searching feel. */
+.orb--thinking .orb__ring {
+  animation-direction: reverse;
+}
+
+/* Error: kill the breathing, hold it still and dim. */
+.orb--error .orb__body,
+.orb--error .orb__shimmer {
+  animation: none;
+}
+.orb--error .orb__glow {
+  opacity: 0.28;
+}
+
+/* Idle: settle the core so it does not read as active. */
+.orb--idle .orb__core {
+  opacity: 0.3;
+}
+
+/* ── Keyframes — transform/opacity only ────────────────────────────────────*/
+
+@keyframes orb-spin {
+  from { transform: scale(1.02) rotate(0deg); }
+  to   { transform: scale(1.02) rotate(360deg); }
+}
+
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(calc(0.72 + (var(--orb-amp) * 0.045))); }
+  50%      { transform: scale(calc(0.745 + (var(--orb-amp) * 0.045))); }
+}
+
+@keyframes orb-drift {
+  0%, 100% { transform: scale(0.72) translate(0, 0); opacity: 0.5; }
+  50%      { transform: scale(0.72) translate(4%, 3%); opacity: 0.34; }
+}
+
+/* Accessibility / power: honour the OS reduced-motion setting. */
+@media (prefers-reduced-motion: reduce) {
+  .orb__ring,
+  .orb__body,
+  .orb__shimmer {
+    animation: none;
+  }
+}

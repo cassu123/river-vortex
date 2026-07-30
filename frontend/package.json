@@ -1,0 +1,20 @@
+{
+  "name": "river-vortex-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "River Vortex kiosk UI — React + Vite, targets Raspberry Pi 4/5 touchscreens",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
+  }
+}
