@@ -30,6 +30,14 @@ const PRIORITY_LABELS = {
   4: 'URGENT',
 };
 
+/** Priority → default icon, used when a notification doesn't specify its own. */
+const PRIORITY_ICONS = {
+  1: 'ℹ️',
+  2: '🔔',
+  3: '⚠️',
+  4: '🚨',
+};
+
 /**
  * Single notification card.
  *
@@ -41,6 +49,7 @@ function NotificationCard({ notification, onDismiss }) {
   const { id, title, message, priority = 2, source = 'system', icon } = notification;
   const accentColor = PRIORITY_COLORS[priority] || PRIORITY_COLORS[2];
   const priorityLabel = PRIORITY_LABELS[priority];
+  const displayIcon = icon || PRIORITY_ICONS[priority] || PRIORITY_ICONS[2];
 
   return (
     <div
@@ -52,7 +61,7 @@ function NotificationCard({ notification, onDismiss }) {
       onKeyDown={(e) => e.key === 'Enter' && onDismiss(id)}
     >
       <div style={styles.cardHeader}>
-        {icon && <span style={styles.cardIcon}>{icon}</span>}
+        {displayIcon && <span style={styles.cardIcon}>{displayIcon}</span>}
         <span style={styles.cardTitle}>{title}</span>
         {priorityLabel && (
           <span style={{ ...styles.priorityBadge, background: accentColor }}>

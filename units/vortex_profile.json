@@ -1,5 +1,6 @@
 {
-  "_comment": "River Vortex unit profile. Values here override defaults in config.py. Environment variables override this file.",
+  "_comment": "River Vortex unit profile. Values here override defaults in config.py. Environment variables override this file. 'configured', 'river_song_api_url', and 'river_song_api_key' are normally written automatically by the setup/pairing flow (see core/setup_api.py) -- leave 'configured' false to boot this unit into Setup mode.",
+  "configured": false,
   "unit_id": "vortex-kitchen-01",
   "unit_name": "Kitchen Vortex",
   "location": "Kitchen",

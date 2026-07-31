@@ -32,12 +32,14 @@ logger = logging.getLogger(__name__)
 
 class DisplayMode:
     """Enumeration of available display modes."""
+    SETUP = "setup"
     AMBIENT = "ambient"
     DASHBOARD = "dashboard"
     DEVICES = "devices"
     CAMERAS = "cameras"
     INTERCOM = "intercom"
     NOTIFICATION = "notification"
+    ROUTINE = "routine"
 
 
 class ScreenManager:
@@ -73,11 +75,19 @@ class ScreenManager:
         """
         Start the screen manager and initialize the display.
 
-        Sets initial brightness and starts the idle timer.
+        Sets initial brightness. If this unit has not yet been paired with
+        River Song, the display starts in Setup mode (showing the pairing
+        PIN) and the ambient idle timer is not started — the setup screen
+        stays up at full brightness until pairing completes.
         """
         self._running = True
         self._apply_brightness(self._brightness)
-        self._reset_idle_timer()
+
+        if not config.get("configured", False):
+            self._current_mode = DisplayMode.SETUP
+        else:
+            self._reset_idle_timer()
+
         logger.info(
             "ScreenManager started (mode=%s, brightness=%d%%).",
             self._current_mode,
@@ -222,6 +232,6 @@ class ScreenManager:
         Args:
             mode: The new display mode string.
         """
-        # Frontend WebSocket notification is handled by the FastAPI event
-        # broadcast system. This is a placeholder for that integration.
+        from core.ws_hub import ws_hub
+        await ws_hub.broadcast({"type": "navigate", "page": mode})
         logger.debug("Frontend notified of mode change: %s", mode)

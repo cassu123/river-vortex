@@ -1,0 +1,33 @@
+{
+  "_comment": "Routine preset templates triggerable via POST /api/vortex/v1/routine/presets/{name} (see core/routines.py:start_preset). Each preset starts a guided routine and may optionally activate a Home Assistant scene first. Edit freely per-unit -- River Song can also list these via GET /api/vortex/v1/routine/presets.",
+
+  "good_morning": {
+    "title": "Good Morning",
+    "scene": "scene.good_morning",
+    "steps": [
+      {"instruction": "Good morning! Opening the blinds and bringing the lights up."},
+      {"instruction": "Here's today's weather and your first calendar event."},
+      {"instruction": "Starting the coffee maker now."}
+    ]
+  },
+
+  "good_night": {
+    "title": "Good Night",
+    "scene": "scene.good_night",
+    "steps": [
+      {"instruction": "Locking the doors and turning off the lights."},
+      {"instruction": "Setting the thermostat to its overnight temperature."},
+      {"instruction": "Good night -- sleep well!"}
+    ]
+  },
+
+  "leaving_home": {
+    "title": "Leaving Home",
+    "scene": "scene.away",
+    "steps": [
+      {"instruction": "Turning off lights and lowering the thermostat."},
+      {"instruction": "Locking the doors and arming the security system."},
+      {"instruction": "Have a great day!"}
+    ]
+  }
+}

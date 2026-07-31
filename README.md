@@ -12,9 +12,15 @@
 | **Ambient display** | Clock, weather, and notifications on a 7" or 10" touchscreen — always visible, always current. |
 | **Device control** | Full Home Assistant integration — lights, thermostat, locks, covers, media players. |
 | **Camera feeds** | Live snapshots and streams from all HA camera entities. |
-| **Intercom** | Peer-to-peer audio between Vortex units in different rooms via UDP multicast. |
+| **Timers & alarms** | Voice-activated countdown timers with on-screen display and a chime when they elapse. |
+| **Guided routines** | Step-by-step walkthroughs (cooking mode, workout mode, bedtime checklists) that duck background music and switch the display for the duration. |
+| **Routine presets** | "Good Morning" / "Good Night" / "Leaving Home" style one-tap routines that activate a Home Assistant scene and start a guided checklist. |
+| **Lists & reminders** | Shopping/to-do lists with tap-to-check items, and an on-screen banner for reminders due soon — synced live from River Song. |
+| **Announcements / "Drop In"** | Broadcast a message to every Vortex unit (phone → house or room → room), with automatic media ducking and an on-screen banner. |
+| **Intercom** | Peer-to-peer audio between Vortex units in different rooms via UDP multicast, with ringing/answer/decline call flow. |
 | **4G LTE fallback** | Automatic cellular failover when home WiFi is unavailable. |
 | **Privacy controls** | Hardware GPIO LED indicators for mic and camera mute state. |
+| **Zero-touch setup** | Pairs with the River Song app like a Google Home device — discoverable via mDNS, paired with an on-screen PIN. No SSH or config files required. |
 
 ---
 
@@ -50,7 +56,7 @@ River Vortex is the **room interface layer only**. All AI processing is handled 
 
 ```
 river-vortex/
-├── core/               # Main entry point, config, constants
+├── core/               # Entry point, config, constants, WS hub, timers, routines
 ├── audio/              # Wake word (Porcupine), mic, speaker, audio manager
 ├── display/            # Screen manager, ambient mode, notifications, cameras
 ├── home_assistant/     # HA WebSocket client, device control, automation triggers
@@ -84,7 +90,10 @@ pip install -r requirements.txt
 
 ### 2. Configure
 
-Copy `.env.example` to `.env` and fill in your values:
+Production units don't need this step — see [First-Run Pairing](#first-run-pairing-setup-mode)
+below to set up the unit from the River Song app instead.
+
+For local development, copy `.env.example` to `.env` and fill in your values:
 
 ```bash
 # Required
@@ -129,6 +138,160 @@ chromium-browser --kiosk --noerrdialogs --disable-infobars http://localhost:8080
 
 ---
 
+## First-Run Pairing (Setup Mode)
+
+A freshly-flashed Vortex unit ships **unpaired** — set up the same way you'd
+set up a Google Home or Nest device, no SSH or `.env` editing required:
+
+1. **Boot the unit.** With `"configured": false` (the default in
+   `units/vortex_profile.json`), Vortex starts in **Setup mode**: the
+   touchscreen shows a 6-digit pairing PIN, and the unit advertises itself
+   on the local network via mDNS as `_riversong-vortex._tcp.local.`.
+2. **Open the River Song app** (or browser) on a phone/computer connected to
+   the same WiFi network. River Song discovers nearby unpaired Vortex units
+   over mDNS.
+3. **Enter the PIN** shown on the unit's display. River Song calls this
+   unit's local setup API to deliver the River Song connection details (and
+   optionally Home Assistant credentials, unit name, and location).
+4. **The unit restarts automatically** with the new configuration applied,
+   then boots straight into Ambient mode.
+
+### Setup API
+
+These endpoints are local-network only and unauthenticated by design — `/pair`
+is gated by the on-screen PIN instead.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/setup/info` | `GET` | Unit identity, hardware info, `configured` status, and (while unpaired) the current pairing PIN. |
+| `/api/vortex/v1/setup/pair` | `POST` | Complete pairing: PIN + River Song (and optional HA/unit) settings. Persists to `vortex_profile.json` and restarts the unit. |
+| `/api/vortex/v1/setup/unpair` | `POST` | Reset the unit back to Setup mode (requires the current `river_song_api_key`). |
+
+### Re-pairing / factory reset
+
+To return a unit to Setup mode, call `/api/vortex/v1/setup/unpair` with its
+current `river_song_api_key`, or manually set `"configured": false` in
+`units/vortex_profile.json` and restart.
+
+### Headless / development setup
+
+To skip pairing during development, set `RIVER_SONG_API_KEY` in `.env` — a
+unit with this key already set is treated as configured and boots straight
+into Ambient mode.
+
+---
+
+## Real-Time Events, Timers, Routines & Announcements
+
+These features are driven by River Song's voice intent handlers, which call
+the small REST APIs below. Vortex owns the countdown/step state, the
+on-screen display, and (for routines/announcements) ducking background
+media. See [ROADMAP.md](ROADMAP.md) for the full Alexa/Google Home feature
+parity plan.
+
+### WebSocket event hub — `/api/ws`
+
+A single shared WebSocket endpoint that the React frontend connects to on
+load. Every subsystem broadcasts JSON messages to all connected clients
+through `core/ws_hub.py`. Relevant message types added in this phase:
+
+| `type` | Payload | Sent when |
+|---|---|---|
+| `timers_update` | `{ "timers": [...] }` | A timer is created, cancelled, or elapses. |
+| `timer_done` | `{ "timer": {...} }` | A timer reaches zero (also plays a chime). |
+| `routine_update` | `{ "routine": {...} }` | A routine starts, advances, or stops. |
+| `announcement` | `{ "announcement": {...} }` | A "Drop In" / broadcast announcement is made (`AnnouncementBanner`). |
+| `intercom_update` | `{ "intercom": {...} }` | The room-to-room intercom state changes (idle/calling/ringing/active, `IntercomBanner`). |
+| `lists_update` | `{ "lists": [...] }` | A list snapshot is pushed or a list item is toggled (`Lists` page). |
+| `reminders_update` | `{ "reminders": [...] }` | A reminders snapshot is pushed (`ReminderBanner`). |
+
+### Timers API — `/api/vortex/v1/timers`
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/timers` | `GET` | List all active timers/alarms. |
+| `/api/vortex/v1/timers` | `POST` | Start a new timer: `{"duration_seconds": 600, "label": "Pasta"}`. |
+| `/api/vortex/v1/timers/{timer_id}` | `DELETE` | Cancel an active timer. |
+
+### Guided Routines API — `/api/vortex/v1/routine`
+
+Used for cooking mode, workout mode, bedtime checklists, or any
+step-by-step walkthrough.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/routine` | `GET` | Current routine state (`{"active": false}` if none). |
+| `/api/vortex/v1/routine` | `POST` | Start a routine: `{"title": "...", "steps": [{"instruction": "...", "duration_seconds": 540}]}`. Replaces any in-progress routine. |
+| `/api/vortex/v1/routine/next` | `POST` | Advance to the next step (stops the routine on the last step). |
+| `/api/vortex/v1/routine/previous` | `POST` | Go back one step (no-op on the first step). |
+| `/api/vortex/v1/routine` | `DELETE` | End the routine early. |
+| `/api/vortex/v1/routine/presets` | `GET` | List available routine preset templates (name, title, step count, optional scene). |
+| `/api/vortex/v1/routine/presets/{name}` | `POST` | Activate a preset: best-effort activates its Home Assistant `scene` (if any), then starts its guided routine. `404` for an unknown preset name. |
+
+While a routine is active, any currently-playing Home Assistant media
+players are ducked to `ROUTINE_DUCK_VOLUME_LEVEL` (see `core/constants.py`)
+and restored to their original volume when the routine ends. The display
+switches to a dedicated "routine" mode for the duration.
+
+Routine presets ("Good Morning", "Good Night", "Leaving Home", etc.) are
+defined in `units/routine_presets.json` — edit freely per-unit to add your
+own. Each preset has a `title`, ordered `steps` (same shape as the routine
+API above), and an optional `scene` (a Home Assistant `scene.xxx` entity ID
+activated before the routine starts).
+
+### Lists & Reminders API — `/api/vortex/v1/lists` and `/api/vortex/v1/reminders`
+
+Shopping/to-do lists and upcoming reminders are owned by River Song — Vortex
+caches the latest snapshot for instant on-screen display and relays touch
+actions back.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/lists` | `GET` | Return the cached lists snapshot: `{"lists": [{"id", "name", "items": [{"id", "text", "checked"}, ...]}, ...]}`. |
+| `/api/vortex/v1/lists` | `POST` | Replace the cached lists snapshot (pushed by River Song): `{"lists": [...]}`. Broadcasts `lists_update`. |
+| `/api/vortex/v1/lists/{list_id}/items/{item_id}/toggle` | `POST` | Flip an item's `checked` state. Returns the updated list. `404` if the list or item doesn't exist. |
+| `/api/vortex/v1/reminders` | `GET` | Return the cached reminders snapshot: `{"reminders": [{"id", "text", "due"}, ...]}`. |
+| `/api/vortex/v1/reminders` | `POST` | Replace the cached reminders snapshot (pushed by River Song): `{"reminders": [...]}`. Broadcasts `reminders_update`. |
+
+The frontend's `Lists` page renders the cached lists with tap-to-toggle
+items, and `ReminderBanner` shows any reminder due within the next hour as
+an on-screen card.
+
+### Announcements ("Drop In") API — `/api/vortex/v1/announce`
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/announce` | `POST` | Broadcast a message: `{"message": "Dinner's ready!", "source": "Kitchen Vortex", "priority": "normal", "duration_seconds": 8}`. Returns `202` with the announcement (incl. `id` and `timestamp`). |
+
+Phone → house and room → room broadcasts are both River Song fanning this
+same call out to the relevant units — Vortex's only job is to play it
+locally. House → phone notifications reuse the existing voice/notification
+pipeline.
+
+While an announcement plays, any currently-playing Home Assistant media
+players are ducked to `ANNOUNCEMENT_DUCK_VOLUME_LEVEL` and restored once the
+message's `duration_seconds` (or an estimate based on its length, capped at
+`ANNOUNCEMENT_MAX_DURATION_SECONDS`) elapses. The "intercom" chime plays
+first.
+
+### Intercom ("Drop In" calls) API — `/api/vortex/v1/intercom`
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/vortex/v1/intercom` | `GET` | Current call state: `{"state": "idle\|calling\|ringing\|active", "peer": {...} or null}`. |
+| `/api/vortex/v1/intercom/peers` | `GET` | Other Vortex units discovered on the local network. |
+| `/api/vortex/v1/intercom/call` | `POST` | Start a call: `{"peer_unit_id": "vortex-kitchen-01"}`. `409` if already on a call or the peer is unknown. |
+| `/api/vortex/v1/intercom/answer` | `POST` | Answer an incoming (`ringing`) call. `409` if not ringing. |
+| `/api/vortex/v1/intercom/decline` | `POST` | Decline an incoming (`ringing`) call. `409` if not ringing. |
+| `/api/vortex/v1/intercom` | `DELETE` | Hang up / cancel the current call (idempotent). |
+
+Once a call is `active`, audio streams directly between the two units over
+UDP (raw PCM via `Microphone`/`Speaker`). Unanswered calls auto-cancel after
+`INTERCOM_RING_TIMEOUT_SECONDS`; active calls auto-end after
+`INTERCOM_MAX_CALL_DURATION_SECONDS`.
+
+---
+
 ## Configuration Priority
 
 Settings are loaded in this order (later sources win):
@@ -137,6 +300,10 @@ Settings are loaded in this order (later sources win):
 2. `.env` file
 3. `units/vortex_profile.json`
 4. Environment variables (highest priority)
+
+The `configured` flag and `river_song_api_url` / `river_song_api_key` in
+`units/vortex_profile.json` are normally written automatically by the
+pairing flow above — see [First-Run Pairing](#first-run-pairing-setup-mode).
 
 ---
 

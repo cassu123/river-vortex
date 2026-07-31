@@ -34,6 +34,10 @@ numpy==1.26.4
 # ── Connectivity ──────────────────────────────────────────────────────────────
 # httpx already listed above — used for River Song API and HA REST calls
 
+# ── Discovery / pairing ───────────────────────────────────────────────────────
+# mDNS advertisement so the River Song app can find this unit during setup
+zeroconf==0.135.0
+
 # ── System telemetry ──────────────────────────────────────────────────────────
 # CPU, memory, disk, and temperature metrics
 psutil==5.9.8

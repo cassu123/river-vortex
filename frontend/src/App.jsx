@@ -18,6 +18,12 @@ import Ambient from './pages/Ambient';
 import Dashboard from './pages/Dashboard';
 import Devices from './pages/Devices';
 import Cameras from './pages/Cameras';
+import Routine from './pages/Routine';
+import Lists from './pages/Lists';
+import Setup from './pages/Setup';
+import AnnouncementBanner from './components/AnnouncementBanner';
+import IntercomBanner from './components/IntercomBanner';
+import ReminderBanner from './components/ReminderBanner';
 import Orb from './presence/Orb';
 import { IDLE_PRESENCE, makePresence } from './presence/presenceContract';
 
@@ -26,8 +32,8 @@ import { IDLE_PRESENCE, makePresence } from './presence/presenceContract';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const initialState = {
-  /** Current display page: 'ambient' | 'dashboard' | 'devices' | 'cameras' */
-  page: 'ambient',
+  /** Current display page: 'loading' | 'setup' | 'ambient' | 'dashboard' | 'devices' | 'cameras' */
+  page: 'loading',
   /** WebSocket connection status */
   wsConnected: false,
   /** Latest ambient data from backend */
@@ -42,6 +48,20 @@ const initialState = {
   notifications: [],
   /** Vortex listening state: idle | listening | processing | responding */
   vortexState: 'idle',
+  /** Active kitchen timers/alarms (see core/timers.py) */
+  timers: [],
+  /** Guided routine session state (cooking mode, etc. — see core/routines.py) */
+  routine: { active: false },
+  /** Most recently elapsed timer, for a transient "time's up" banner */
+  lastTimerDone: null,
+  /** Room-to-room "Drop In" intercom state (see core/intercom_api.py) */
+  intercom: { state: 'idle', peer: null },
+  /** Most recent "Drop In" / broadcast announcement (see core/announce.py) */
+  announcement: null,
+  /** Shopping/to-do lists snapshot (see core/lists.py) */
+  lists: [],
+  /** Upcoming reminders snapshot (see core/lists.py) */
+  reminders: [],
   /**
    * River's presence — {state, amplitude, mood, caption}. Drives the orb
    * today and the Rive / holographic avatar later. See presenceContract.js.
@@ -79,6 +99,24 @@ function appReducer(state, action) {
       };
     case 'SET_PRESENCE':
       return { ...state, presence: action.payload };
+    case 'SET_TIMERS':
+      return { ...state, timers: action.payload };
+    case 'SET_ROUTINE':
+      return { ...state, routine: action.payload };
+    case 'TIMER_DONE':
+      return { ...state, lastTimerDone: action.payload };
+    case 'CLEAR_TIMER_DONE':
+      return { ...state, lastTimerDone: null };
+    case 'SET_INTERCOM':
+      return { ...state, intercom: action.payload };
+    case 'SET_ANNOUNCEMENT':
+      return { ...state, announcement: action.payload };
+    case 'CLEAR_ANNOUNCEMENT':
+      return { ...state, announcement: null };
+    case 'SET_LISTS':
+      return { ...state, lists: action.payload };
+    case 'SET_REMINDERS':
+      return { ...state, reminders: action.payload };
     default:
       return state;
   }
@@ -185,6 +223,27 @@ function handleMessage(msg, dispatch, amplitudeRef) {
     case 'navigate':
       dispatch({ type: 'SET_PAGE', payload: msg.page });
       break;
+    case 'timers_update':
+      dispatch({ type: 'SET_TIMERS', payload: msg.timers });
+      break;
+    case 'timer_done':
+      dispatch({ type: 'TIMER_DONE', payload: msg.timer });
+      break;
+    case 'routine_update':
+      dispatch({ type: 'SET_ROUTINE', payload: msg.routine });
+      break;
+    case 'intercom_update':
+      dispatch({ type: 'SET_INTERCOM', payload: msg.intercom });
+      break;
+    case 'announcement':
+      dispatch({ type: 'SET_ANNOUNCEMENT', payload: msg.announcement });
+      break;
+    case 'lists_update':
+      dispatch({ type: 'SET_LISTS', payload: msg.lists });
+      break;
+    case 'reminders_update':
+      dispatch({ type: 'SET_REMINDERS', payload: msg.reminders });
+      break;
     default:
       break;
   }
@@ -196,9 +255,13 @@ function handleMessage(msg, dispatch, amplitudeRef) {
 
 function PageRouter({ page }) {
   switch (page) {
+    case 'loading':   return null;
+    case 'setup':     return <Setup />;
     case 'dashboard': return <Dashboard />;
     case 'devices':   return <Devices />;
     case 'cameras':   return <Cameras />;
+    case 'routine':   return <Routine />;
+    case 'lists':     return <Lists />;
     case 'ambient':
     default:          return <Ambient />;
   }
@@ -245,12 +308,34 @@ export default function App() {
     dispatch({ type: 'SET_PAGE', payload: page });
   }, []);
 
+  // On first load, check whether this unit has been paired with River Song.
+  // Unpaired units land on the Setup (pairing) screen instead of Ambient.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        dispatch({ type: 'UPDATE_SYSTEM', payload: data });
+        dispatch({ type: 'SET_PAGE', payload: data.configured ? 'ambient' : 'setup' });
+      })
+      .catch(() => {
+        if (!cancelled) dispatch({ type: 'SET_PAGE', payload: 'ambient' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const contextValue = { state, dispatch, navigate, amplitudeRef };
 
   return (
     <AppContext.Provider value={contextValue}>
       <div style={styles.root}>
         <PageRouter page={state.page} />
+        <IntercomBanner />
+        <AnnouncementBanner />
+        <ReminderBanner />
         <PresenceOverlay presence={state.presence} amplitudeRef={amplitudeRef} />
       </div>
     </AppContext.Provider>

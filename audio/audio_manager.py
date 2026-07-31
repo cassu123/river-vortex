@@ -111,6 +111,18 @@ class AudioManager:
         """
         self._speaker.set_volume(level)
 
+    def play_chime(self, chime_type: str = "done") -> None:
+        """
+        Play a short system chime through the speaker.
+
+        Used by other subsystems (e.g., TimerManager) to announce events
+        without going through the full voice command pipeline.
+
+        Args:
+            chime_type: One of 'wake', 'done', 'error', 'intercom'.
+        """
+        self._speaker.play_chime(chime_type)
+
     def mute_microphone(self) -> None:
         """Mute the microphone (software mute)."""
         self._microphone.mute()
@@ -118,6 +130,16 @@ class AudioManager:
     def unmute_microphone(self) -> None:
         """Unmute the microphone."""
         self._microphone.unmute()
+
+    @property
+    def microphone(self) -> Microphone:
+        """The underlying Microphone instance — used by IntercomManager for call audio."""
+        return self._microphone
+
+    @property
+    def speaker(self) -> Speaker:
+        """The underlying Speaker instance — used by IntercomManager for call audio."""
+        return self._speaker
 
     # ─────────────────────────────────────────────────────────────────────────
     # Wake Word → Command Flow

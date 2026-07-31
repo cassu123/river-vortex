@@ -22,6 +22,8 @@ from typing import Optional, Union
 from core.config import config
 from core.constants import (
     DEFAULT_VOLUME,
+    INTERCOM_AUDIO_CHANNELS,
+    INTERCOM_AUDIO_SAMPLE_RATE,
     MAX_VOLUME,
     MIN_VOLUME,
     SPEAKER_CHANNELS,
@@ -62,6 +64,12 @@ class Speaker:
         # True only while _play_item is actually pushing frames to the device.
         self._playing: bool = False
 
+        # Persistent raw PCM output stream — used for low-latency intercom
+        # audio, which arrives as headerless frames (see play_raw()).
+        self._raw_stream = None
+        self._raw_pa = None
+        self._raw_stream_params: Optional[tuple] = None
+
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
     # ─────────────────────────────────────────────────────────────────────────
@@ -95,6 +103,7 @@ class Speaker:
         self._playback_queue.put(None)
         if self._playback_thread and self._playback_thread.is_alive():
             self._playback_thread.join(timeout=3.0)
+        self.stop_raw()
         logger.info("Speaker stopped.")
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -140,6 +149,45 @@ class Speaker:
             self.play(path, interrupt=False)
         else:
             logger.debug("Chime '%s' not found at '%s' — skipping.", chime_type, path)
+
+    def play_raw(
+        self,
+        pcm_bytes: bytes,
+        sample_rate: int = INTERCOM_AUDIO_SAMPLE_RATE,
+        channels: int = INTERCOM_AUDIO_CHANNELS,
+    ) -> None:
+        """
+        Play a headerless raw PCM16 audio frame immediately via a persistent
+        output stream — used for low-latency intercom audio, which arrives
+        as small frames that cannot go through the WAV-based play() queue.
+
+        Args:
+            pcm_bytes:   Raw PCM bytes (int16).
+            sample_rate: Sample rate of `pcm_bytes` in Hz.
+            channels:    Channel count of `pcm_bytes`.
+        """
+        try:
+            self._open_raw_stream(sample_rate, channels)
+            self._raw_stream.write(self._apply_volume(pcm_bytes))
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.debug("Failed to play raw audio frame: %s", exc)
+
+    def stop_raw(self) -> None:
+        """Stop and release the persistent raw PCM output stream, if open."""
+        if self._raw_stream:
+            try:
+                self._raw_stream.stop_stream()
+                self._raw_stream.close()
+            except Exception:  # pylint: disable=broad-except
+                pass
+            self._raw_stream = None
+        if self._raw_pa:
+            try:
+                self._raw_pa.terminate()
+            except Exception:  # pylint: disable=broad-except
+                pass
+            self._raw_pa = None
+        self._raw_stream_params = None
 
     def set_volume(self, level: int) -> None:
         """
@@ -192,6 +240,29 @@ class Speaker:
                 logger.error("Playback error: %s", exc)
             finally:
                 self._playing = False
+
+    def _open_raw_stream(self, sample_rate: int, channels: int) -> None:
+        """
+        Lazily (re)open the persistent raw PCM output stream.
+
+        A no-op if a stream is already open with matching parameters.
+        """
+        if self._raw_stream and self._raw_stream_params == (sample_rate, channels):
+            return
+
+        if self._raw_stream:
+            self.stop_raw()
+
+        import pyaudio  # type: ignore
+
+        self._raw_pa = self._raw_pa or pyaudio.PyAudio()
+        self._raw_stream = self._raw_pa.open(
+            format=pyaudio.paInt16,
+            channels=channels,
+            rate=sample_rate,
+            output=True,
+        )
+        self._raw_stream_params = (sample_rate, channels)
 
     def _play_item(self, audio: Union[bytes, str, Path]) -> None:
         """

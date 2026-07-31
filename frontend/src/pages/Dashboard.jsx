@@ -16,6 +16,7 @@ import React from 'react';
 import Clock from '../components/Clock';
 import Weather from '../components/Weather';
 import NotificationBar from '../components/NotificationBar';
+import TimersWidget from '../components/TimersWidget';
 import DeviceGrid from '../components/DeviceGrid';
 import { useApp } from '../App';
 
@@ -60,6 +61,9 @@ export default function Dashboard() {
     <div style={styles.container}>
       {/* Notifications */}
       <NotificationBar />
+
+      {/* Active timers */}
+      <TimersWidget />
 
       {/* Header */}
       <div style={styles.header}>
@@ -109,6 +113,7 @@ export default function Dashboard() {
         <NavButton icon="🏠" label="Dashboard" page="dashboard" active={page === 'dashboard'} onClick={navigate} />
         <NavButton icon="💡" label="Devices"   page="devices"   active={page === 'devices'}   onClick={navigate} />
         <NavButton icon="📷" label="Cameras"   page="cameras"   active={page === 'cameras'}   onClick={navigate} />
+        <NavButton icon="📝" label="Lists"     page="lists"     active={page === 'lists'}     onClick={navigate} />
       </nav>
     </div>
   );

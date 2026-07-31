@@ -218,6 +218,35 @@ class DeviceControl:
         return await self._call(HADomain.COVER, HAService.CLOSE_COVER, {"entity_id": entity_id})
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Media Players
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def set_media_volume(self, entity_id: str, volume_level: float) -> bool:
+        """
+        Set a media player's volume.
+
+        Used by guided routines (e.g., cooking mode) to duck and restore
+        background music while the unit is talking through steps.
+
+        Args:
+            entity_id:    Media player entity ID.
+            volume_level: Volume from 0.0 (silent) to 1.0 (maximum).
+
+        Returns:
+            True on success.
+        """
+        return await self._call(
+            HADomain.MEDIA_PLAYER,
+            HAService.VOLUME_SET,
+            {"entity_id": entity_id, "volume_level": max(0.0, min(1.0, volume_level))},
+        )
+
+    async def get_all_media_players(self) -> List[Dict[str, Any]]:
+        """Return all media_player entities and their current states."""
+        all_states = await self._ha.get_all_states()
+        return [s for s in all_states if s.get("entity_id", "").startswith("media_player.")]
+
+    # ─────────────────────────────────────────────────────────────────────────
     # State Queries
     # ─────────────────────────────────────────────────────────────────────────
 

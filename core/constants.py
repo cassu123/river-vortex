@@ -34,11 +34,56 @@ RIVER_SONG_COMMAND_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSI
 RIVER_SONG_STATUS_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/status"
 RIVER_SONG_STREAM_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/stream"
 RIVER_SONG_HEALTH_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/health"
+RIVER_SONG_SETUP_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/setup"
+RIVER_SONG_TIMERS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/timers"
+RIVER_SONG_ROUTINE_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/routine"
+RIVER_SONG_ANNOUNCE_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/announce"
+RIVER_SONG_INTERCOM_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/intercom"
+RIVER_SONG_LISTS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/lists"
+RIVER_SONG_REMINDERS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/reminders"
 
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5
 API_READ_TIMEOUT: int = 30
 API_STREAM_TIMEOUT: int = 120
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pairing & Discovery
+# ─────────────────────────────────────────────────────────────────────────────
+# A freshly-installed Vortex unit is "unpaired": it has no River Song API key
+# yet. While unpaired it advertises itself on the local network via mDNS and
+# displays a one-time pairing PIN. The River Song app/browser discovers the
+# unit, the user confirms the PIN, and the app POSTs River Song's connection
+# details to the unit's setup API — much like adding a new Google Home device.
+
+PAIRING_PIN_LENGTH: int = 6
+MDNS_SERVICE_TYPE: str = "_riversong-vortex._tcp.local."
+RESTART_DELAY_SECONDS: float = 2.0   # Grace period before restarting after pairing
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Timers & Guided Routines (Cooking Mode, etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+# River Song recognizes voice intents (e.g., "set a timer for 10 minutes",
+# "start the lasagna recipe", "next step") and drives these features via the
+# REST APIs in core/timers_api.py and core/routines_api.py. Vortex owns the
+# countdown/step state, the on-screen display, and ducking background media.
+
+MAX_TIMER_DURATION_SECONDS: int = 24 * 60 * 60   # 24 hours
+ROUTINE_DUCK_VOLUME_LEVEL: float = 0.2           # Media volume (0.0-1.0) while a routine is active
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Announcements ("Drop In" / Broadcast)
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /api/vortex/v1/announce plays a short message (and optional pre-rendered
+# TTS audio) through this unit's speaker — used for phone → house broadcasts,
+# room → room "announce to everyone" intents, and similar Alexa/Google Home
+# style "Drop In" messages. River Song is responsible for fanning an
+# announcement out to every paired unit; Vortex just plays it locally.
+
+ANNOUNCEMENT_DUCK_VOLUME_LEVEL: float = 0.15        # Media volume (0.0-1.0) while an announcement plays
+ANNOUNCEMENT_DEFAULT_DURATION_SECONDS: float = 6.0  # Fallback playback estimate for text-only announcements
+ANNOUNCEMENT_MAX_DURATION_SECONDS: float = 60.0     # Hard cap on announcement duration / ducking window
+ANNOUNCEMENT_MAX_MESSAGE_LENGTH: int = 500
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Audio — Microphone & Wake Word
@@ -144,6 +189,7 @@ INTERCOM_DISCOVERY_INTERVAL_SECONDS: int = 30
 INTERCOM_HEARTBEAT_INTERVAL_SECONDS: int = 15
 INTERCOM_PEER_TIMEOUT_SECONDS: int = 60    # Remove peer if no heartbeat
 INTERCOM_MAX_CALL_DURATION_SECONDS: int = 300
+INTERCOM_RING_TIMEOUT_SECONDS: int = 30    # Unanswered call auto-cancels after this long
 INTERCOM_AUDIO_SAMPLE_RATE: int = 16000
 INTERCOM_AUDIO_CHANNELS: int = 1
 
@@ -185,6 +231,7 @@ LOG_DIR: str = "/var/log/river-vortex"
 class VortexState(Enum):
     """Top-level system states for the River Vortex unit."""
     INITIALIZING = auto()
+    SETUP = auto()          # Unpaired — advertising for River Song app pairing
     IDLE = auto()           # Ambient mode, listening for wake word
     LISTENING = auto()      # Wake word detected, capturing command
     PROCESSING = auto()     # Audio sent to River Song, awaiting response
@@ -226,3 +273,4 @@ PROFILE_PATH: str = "units/vortex_profile.json"
 ENV_FILE_PATH: str = ".env"
 PORCUPINE_MODEL_DIR: str = "audio/models"
 FRONTEND_BUILD_DIR: str = "frontend/dist"
+ROUTINE_PRESETS_PATH: str = "units/routine_presets.json"
