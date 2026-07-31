@@ -21,6 +21,9 @@ import Cameras from './pages/Cameras';
 import Routine from './pages/Routine';
 import Lists from './pages/Lists';
 import Setup from './pages/Setup';
+import Screensaver from './pages/Screensaver';
+import NowPlaying from './pages/NowPlaying';
+import Boot from './pages/Boot';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import IntercomBanner from './components/IntercomBanner';
 import ReminderBanner from './components/ReminderBanner';
@@ -33,7 +36,7 @@ import { IDLE_PRESENCE, makePresence } from './presence/presenceContract';
 
 const initialState = {
   /** Current display page: 'loading' | 'setup' | 'ambient' | 'dashboard' | 'devices' | 'cameras' */
-  page: 'loading',
+  page: 'boot',
   /** WebSocket connection status */
   wsConnected: false,
   /** Latest ambient data from backend */
@@ -62,6 +65,10 @@ const initialState = {
   lists: [],
   /** Upcoming reminders snapshot (see core/lists.py) */
   reminders: [],
+  /** Media transport state (see audio/media_player.py) */
+  media: { state: 'idle', now_playing: {} },
+  /** Boot self-test report (see core/diagnostics.py) */
+  diagnostics: null,
   /**
    * River's presence — {state, amplitude, mood, caption}. Drives the orb
    * today and the Rive / holographic avatar later. See presenceContract.js.
@@ -117,6 +124,15 @@ function appReducer(state, action) {
       return { ...state, lists: action.payload };
     case 'SET_REMINDERS':
       return { ...state, reminders: action.payload };
+    case 'SET_MEDIA':
+      return { ...state, media: action.payload };
+    case 'SET_DIAGNOSTICS':
+      return { ...state, diagnostics: action.payload };
+    case 'BOOT_COMPLETE':
+      // Only leave the boot screen — never yank the user off a page they
+      // navigated to while the self-test was still finishing.
+      if (state.page !== 'boot') return state;
+      return { ...state, page: state.system.configured === false ? 'setup' : 'ambient' };
     default:
       return state;
   }
@@ -202,6 +218,12 @@ function handleMessage(msg, dispatch, amplitudeRef) {
       dispatch({ type: 'SET_PRESENCE', payload: presence });
       break;
     }
+    case 'diagnostic':
+      dispatch({ type: 'SET_DIAGNOSTICS', payload: msg.report });
+      break;
+    case 'media_update':
+      dispatch({ type: 'SET_MEDIA', payload: msg.media });
+      break;
     case 'ambient_update':
       dispatch({ type: 'UPDATE_AMBIENT', payload: msg.data });
       break;
@@ -253,13 +275,20 @@ function handleMessage(msg, dispatch, amplitudeRef) {
 // Page router
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PageRouter({ page }) {
+function PageRouter({ page, diagnostics }) {
   switch (page) {
     case 'loading':   return null;
     case 'setup':     return <Setup />;
     case 'dashboard': return <Dashboard />;
     case 'devices':   return <Devices />;
     case 'cameras':   return <Cameras />;
+    // Burn-in protection stages, driven by display/screen_manager.py.
+    case 'boot':      return <Boot report={diagnostics} />;
+    case 'nowplaying': return <NowPlaying />;
+    case 'screensaver': return <Screensaver />;
+    // Backlight is off; render pure black so waking does not flash the
+    // previous screen before the next one paints.
+    case 'off':       return <div style={styles.screenOff} />;
     case 'routine':   return <Routine />;
     case 'lists':     return <Lists />;
     case 'ambient':
@@ -285,8 +314,8 @@ function PageRouter({ page }) {
 function PresenceOverlay({ presence, amplitudeRef }) {
   if (presence.state === 'idle') return null;
   return (
-    <div style={styles.overlay}>
-      <Orb presence={presence} amplitudeRef={amplitudeRef} size={104} />
+    <div className="presence-overlay orb-wrap--compact">
+      <Orb presence={presence} amplitudeRef={amplitudeRef} size={84} />
     </div>
   );
 }
@@ -304,6 +333,40 @@ export default function App() {
 
   useBackendSocket(dispatch, amplitudeRef);
 
+  // The kiosk browser normally starts AFTER the backend, so the self-test can
+  // already be finished by the time we connect and no 'diagnostic' frame will
+  // ever arrive. Fetch the report once so a late start still sees it — and so
+  // the handover below fires rather than waiting out the failsafe.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/vortex/v1/diagnostics')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data && data.results?.length) {
+          dispatch({ type: 'SET_DIAGNOSTICS', payload: data });
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Leave the boot screen once the self-test is done, whichever route the
+  // report arrived by. The pause lets the final verdict actually be read.
+  const bootDone = state.diagnostics?.complete;
+  useEffect(() => {
+    if (!bootDone) return undefined;
+    const id = setTimeout(() => dispatch({ type: 'BOOT_COMPLETE' }), 1400);
+    return () => clearTimeout(id);
+  }, [bootDone]);
+
+  // Failsafe: never strand the unit on the boot screen. If the self-test
+  // never reports -- backend crashed, WebSocket never connected -- hand over
+  // anyway so the panel is at least usable.
+  useEffect(() => {
+    const id = setTimeout(() => dispatch({ type: 'BOOT_COMPLETE' }), 20000);
+    return () => clearTimeout(id);
+  }, []);
+
   const navigate = useCallback((page) => {
     dispatch({ type: 'SET_PAGE', payload: page });
   }, []);
@@ -316,11 +379,18 @@ export default function App() {
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
+        // Record whether this unit is paired, but do NOT route here. The boot
+        // screen owns the first transition and reads system.configured when
+        // the self-test completes — routing from both places raced, and this
+        // one always won, so the boot screen was never seen at all.
         dispatch({ type: 'UPDATE_SYSTEM', payload: data });
-        dispatch({ type: 'SET_PAGE', payload: data.configured ? 'ambient' : 'setup' });
       })
       .catch(() => {
-        if (!cancelled) dispatch({ type: 'SET_PAGE', payload: 'ambient' });
+        // Backend unreachable. Mark it unconfigured so the boot screen hands
+        // over to Setup rather than an ambient screen with no data behind it.
+        if (!cancelled) {
+          dispatch({ type: 'UPDATE_SYSTEM', payload: { configured: false } });
+        }
       });
     return () => {
       cancelled = true;
@@ -332,7 +402,7 @@ export default function App() {
   return (
     <AppContext.Provider value={contextValue}>
       <div style={styles.root}>
-        <PageRouter page={state.page} />
+        <PageRouter page={state.page} diagnostics={state.diagnostics} />
         <IntercomBanner />
         <AnnouncementBanner />
         <ReminderBanner />
@@ -347,6 +417,12 @@ export default function App() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = {
+  screenOff: {
+    width: '100%',
+    height: '100%',
+    background: '#000',
+    cursor: 'none',
+  },
   root: {
     width: '100vw',
     height: '100vh',
@@ -355,18 +431,5 @@ const styles = {
     overflow: 'hidden',
     position: 'relative',
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  },
-  overlay: {
-    position: 'absolute',
-    bottom: 24,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 100,
-    pointerEvents: 'none',
-    // No backdrop-filter here: it is a per-frame GPU cost on the Pi 4 and
-    // the orb's own bloom already separates it from the page behind it.
   },
 };

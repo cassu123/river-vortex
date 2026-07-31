@@ -41,6 +41,14 @@ RIVER_SONG_ANNOUNCE_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}
 RIVER_SONG_INTERCOM_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/intercom"
 RIVER_SONG_LISTS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/lists"
 RIVER_SONG_REMINDERS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/reminders"
+RIVER_SONG_PHOTOS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/photos"
+
+# Weather lives on River Song's feeds API, NOT under /api/vortex. Note it
+# authenticates a user rather than a unit token, so a Vortex unit cannot call
+# it yet -- see docs/RIVERSONG_PROMPT.md.
+RIVER_SONG_WEATHER_ENDPOINT: str = "/api/feeds/weather"
+RIVER_SONG_MEDIA_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/media"
+RIVER_SONG_DIAGNOSTICS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/diagnostics"
 
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5
@@ -116,6 +124,13 @@ MIN_VOLUME: int = 0
 MAX_VOLUME: int = 100
 TTS_CACHE_DIR: str = "/tmp/vortex_tts_cache"
 
+# ── Media playback ───────────────────────────────────────────────────────────
+# Streaming music/radio, played by mpv as a child process. Separate from the
+# Speaker, which handles short WAV chimes and TTS.
+MEDIA_DUCK_VOLUME_LEVEL: float = 0.25      # Fraction of volume while River speaks
+MEDIA_STARTUP_TIMEOUT_SECONDS: float = 5.0 # Wait for mpv's IPC socket
+MEDIA_IPC_TIMEOUT_SECONDS: float = 2.0     # Per-command socket timeout
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Display
 # ─────────────────────────────────────────────────────────────────────────────
@@ -135,6 +150,27 @@ SCREEN_BRIGHTNESS_MIN: int = 10
 SCREEN_BRIGHTNESS_MAX: int = 100
 
 AMBIENT_MODE_TIMEOUT_SECONDS: int = 300    # 5 min idle → ambient mode
+
+# ── Burn-in protection ───────────────────────────────────────────────────────
+# A wall panel shows the same layout for 16 hours a day, which is exactly how
+# you burn a permanent ghost of the clock into a display. Idle proceeds in
+# stages, each one dimmer and less static than the last:
+#
+#   active → ambient (dimmed) → screensaver (drifting, very dim) → backlight off
+#
+# Timeouts are measured from the LAST activity, not from the previous stage,
+# so screensaver must be greater than ambient, and off greater than screensaver.
+SCREENSAVER_TIMEOUT_SECONDS: int = 1800     # 30 min idle → drifting screensaver
+SCREEN_OFF_TIMEOUT_SECONDS: int = 5400      # 90 min idle → backlight off
+SCREEN_BRIGHTNESS_SCREENSAVER: int = 12     # Barely visible, still readable in the dark
+SCREENSAVER_DRIFT_INTERVAL_SECONDS: int = 45  # How often the clock repositions
+
+# ── Ambient photo backdrop ───────────────────────────────────────────────────
+# Photos live on the unit so the ambient screen still works with River Song
+# down. A changing backdrop is also the opposite of a static burned-in layout.
+AMBIENT_PHOTO_DIR: str = "/var/lib/river-vortex/photos"
+AMBIENT_PHOTO_INTERVAL_SECONDS: int = 90   # How long each photo is held
+AMBIENT_PHOTO_FADE_MS: int = 2500          # Crossfade duration between photos
 AMBIENT_CLOCK_UPDATE_INTERVAL: int = 1     # Seconds between clock refreshes
 AMBIENT_WEATHER_UPDATE_INTERVAL: int = 600 # 10 min between weather refreshes
 NOTIFICATION_DISPLAY_DURATION: int = 8     # Seconds a notification stays visible

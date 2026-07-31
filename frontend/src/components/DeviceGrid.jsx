@@ -98,7 +98,7 @@ function DeviceTile({ entity, onToggle, loading }) {
  * @param {object}   props
  * @param {string[]} [props.domains] - Filter to specific domains. Shows all if omitted.
  */
-export default function DeviceGrid({ domains }) {
+export default function DeviceGrid({ domains, flat = false }) {
   const { state, dispatch } = useApp();
   const [loadingIds, setLoadingIds] = useState(new Set());
 
@@ -153,6 +153,29 @@ export default function DeviceGrid({ domains }) {
       <div style={styles.empty}>
         <span style={styles.emptyIcon}>🏠</span>
         <span style={styles.emptyText}>No devices available</span>
+      </div>
+    );
+  }
+
+  // Flat mode: one unified grid instead of a headed section per domain.
+  //
+  // Grouping is right on the full Devices page, but on the Dashboard it wastes
+  // a whole row per domain -- a home with one thermostat and one lock spends
+  // two full rows showing two tiles, and six devices ended up needing a scroll
+  // on a 10" panel. Flattened, the same six fit on one screen. Each tile still
+  // carries its domain icon, so nothing is lost.
+  if (flat) {
+    const ordered = Object.values(grouped).flat();
+    return (
+      <div style={styles.grid}>
+        {ordered.map((entity) => (
+          <DeviceTile
+            key={entity.entity_id}
+            entity={entity}
+            onToggle={handleToggle}
+            loading={loadingIds.has(entity.entity_id)}
+          />
+        ))}
       </div>
     );
   }
@@ -224,19 +247,26 @@ const styles = {
   },
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-    gap: 10,
+    // Tile width scales with the panel instead of being pinned at 140px.
+    // On a 10" 1280px display that produced eight narrow columns, so a
+    // handful of devices huddled in the left third of the screen and the
+    // touch targets were small. clamp() gives roughly four generous columns
+    // on a 10" and four on a 7", filling the width at both sizes.
+    gridTemplateColumns: 'repeat(auto-fill, minmax(clamp(150px, 20vw, 260px), 1fr))',
+    gap: 12,
   },
   tile: {
     display: 'flex',
     flexDirection: 'column',
     gap: 6,
-    padding: '14px 12px',
-    borderRadius: 12,
+    padding: '18px 16px',
+    borderRadius: 14,
     border: '1px solid rgba(255,255,255,0.06)',
     cursor: 'pointer',
     transition: 'background 0.15s, border-color 0.15s',
-    minHeight: 80,
+    // Comfortably above the ~44px minimum touch target, for wet or floury
+    // hands on a wall panel.
+    minHeight: 96,
   },
   tileActive: {
     background: 'rgba(74,158,255,0.12)',
@@ -251,10 +281,10 @@ const styles = {
     cursor: 'wait',
   },
   tileIcon: {
-    fontSize: 22,
+    fontSize: 26,
   },
   tileName: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: 400,
     color: '#c0c0d8',
     lineHeight: 1.3,
@@ -263,7 +293,7 @@ const styles = {
     whiteSpace: 'nowrap',
   },
   tileState: {
-    fontSize: 11,
+    fontSize: 12,
     textTransform: 'capitalize',
     letterSpacing: '0.04em',
   },

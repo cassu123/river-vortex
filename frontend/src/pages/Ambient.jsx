@@ -17,6 +17,7 @@ import React, { useCallback } from 'react';
 import Clock from '../components/Clock';
 import Weather from '../components/Weather';
 import NotificationBar from '../components/NotificationBar';
+import PhotoBackdrop from '../components/PhotoBackdrop';
 import TimersWidget from '../components/TimersWidget';
 import { useApp } from '../App';
 
@@ -43,6 +44,10 @@ export default function Ambient() {
       role="main"
       aria-label="Ambient display — tap to open dashboard"
     >
+      {/* Photo layer sits behind everything. Renders nothing when the
+          unit has no photo library, leaving the gradient below it. */}
+      <PhotoBackdrop />
+
       {/* Notification overlay — top right */}
       <NotificationBar />
 
@@ -80,6 +85,8 @@ const styles = {
     userSelect: 'none',
   },
   center: {
+    position: 'relative',
+    zIndex: 1,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -92,6 +99,7 @@ const styles = {
     background: 'rgba(255,255,255,0.08)',
   },
   hint: {
+    zIndex: 1,
     position: 'absolute',
     bottom: 20,
     fontSize: 12,

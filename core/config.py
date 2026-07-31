@@ -29,6 +29,10 @@ from core.constants import (
     DEFAULT_WAKE_WORD,
     WAKE_WORD_SENSITIVITY,
     AMBIENT_MODE_TIMEOUT_SECONDS,
+    AMBIENT_PHOTO_DIR,
+    AMBIENT_PHOTO_INTERVAL_SECONDS,
+    SCREENSAVER_TIMEOUT_SECONDS,
+    SCREEN_OFF_TIMEOUT_SECONDS,
     SCREEN_BRIGHTNESS_DEFAULT,
     HA_RECONNECT_INTERVAL_SECONDS,
     INTERCOM_PORT,
@@ -36,6 +40,47 @@ from core.constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _derive_unit_id() -> str:
+    """
+    Build a stable, unique id for this physical unit.
+
+    Prefers the Raspberry Pi serial, which is burned into the SoC and survives
+    reimaging. Falls back to the primary MAC, then to a random value.
+
+    Returns:
+        An id of the form "vortex-<12 hex chars>".
+    """
+    # Pi serial — stable across reimaging, unique per board.
+    try:
+        with open("/proc/cpuinfo", "r") as fh:
+            for line in fh:
+                if line.startswith("Serial"):
+                    serial = line.split(":")[-1].strip()
+                    if serial and set(serial) != {"0"}:
+                        return f"vortex-{serial[-12:]}"
+    except OSError:
+        pass
+
+    # MAC address — stable unless the network hardware changes.
+    try:
+        import uuid as _uuid
+        node = _uuid.getnode()
+        # getnode() sets the multicast bit when it had to invent a value.
+        if not (node >> 40) & 0x1:
+            return f"vortex-{node:012x}"
+    except Exception:  # pylint: disable=broad-except
+        pass
+
+    # Last resort. Not stable across reboots, but pairing persists it to the
+    # profile on first setup, so it only has to survive until then.
+    import secrets as _secrets
+    logger.warning(
+        "Could not derive a hardware unit id — using a random one. It will be "
+        "persisted to the profile when this unit is paired."
+    )
+    return f"vortex-{_secrets.token_hex(6)}"
 
 
 class ConfigError(Exception):
@@ -105,11 +150,19 @@ class Config:
         )
 
         self._loaded = True
-        logger.info(
-            "Configuration loaded for unit '%s' at location '%s'",
-            self._settings.get("unit_name", "unknown"),
-            self._settings.get("location", "unknown"),
-        )
+        if self._settings.get("configured"):
+            logger.info(
+                "Configuration loaded for '%s' at '%s' (%s)",
+                self._settings.get("unit_name") or "unnamed",
+                self._settings.get("location") or "no location set",
+                self._settings.get("unit_id"),
+            )
+        else:
+            # Say nothing about a name or room: this unit has neither yet.
+            logger.info(
+                "Configuration loaded — unit %s is unpaired, awaiting setup.",
+                self._settings.get("unit_id"),
+            )
 
     def get(self, key: str, default: Any = None) -> Any:
         """
@@ -228,10 +281,18 @@ class Config:
         .env entry, or profile key is present.
         """
         self._settings = {
-            # Unit identity
-            "unit_id": "vortex-unset",
-            "unit_name": "River Vortex",
-            "location": "Unknown Room",
+            # Unit identity.
+            #
+            # unit_id is derived from the hardware so that every unit flashed
+            # from the same SD image is still distinct -- baking an id into
+            # the image would have them all collide in River Song's fleet.
+            #
+            # unit_name and location are deliberately EMPTY until pairing
+            # writes them. A unit sitting in its box must not claim to be the
+            # Kitchen Vortex, and the screen should say so honestly.
+            "unit_id": _derive_unit_id(),
+            "unit_name": "",
+            "location": "",
 
             # Pairing — true once this unit has been paired with River Song
             "configured": False,
@@ -259,7 +320,22 @@ class Config:
             "screen_brightness": SCREEN_BRIGHTNESS_DEFAULT,
             "ambient_mode_enabled": True,
             "ambient_timeout": AMBIENT_MODE_TIMEOUT_SECONDS,
+            # Burn-in staircase. Each is measured from the last activity, so
+            # they must increase: ambient < screensaver < off.
+            "screensaver_timeout": SCREENSAVER_TIMEOUT_SECONDS,
+            "screen_off_timeout": SCREEN_OFF_TIMEOUT_SECONDS,
             "theme": "dark-river",
+
+            # Ambient photo backdrop
+            "photos_dir": AMBIENT_PHOTO_DIR,
+            "photo_interval_seconds": AMBIENT_PHOTO_INTERVAL_SECONDS,
+            "ambient_photos_enabled": True,
+            "photo_shuffle": True,
+
+            # Physical shape of this unit: "hub_max" (10"), "hub" (7") or
+            # "mini" (no screen at all). Drives which output surfaces the
+            # presenter uses, and which layout the frontend picks.
+            "form_factor": "hub",
 
             # Intercom
             "intercom_enabled": True,
@@ -309,10 +385,12 @@ class Config:
             )
             return
 
-        # Top-level scalar keys (unit_id, unit_name, location, theme, ...)
+        # Top-level scalar keys (unit_id, unit_name, location, theme, ...).
+        # Blank values are skipped so an unpaired profile cannot wipe the
+        # derived unit_id back to an empty string.
         self._settings.update({
             k: v for k, v in profile_data.items()
-            if not isinstance(v, dict) and not k.startswith("_")
+            if not isinstance(v, dict) and not k.startswith("_") and v != ""
         })
 
         # Flatten grouped sections.
@@ -368,6 +446,8 @@ class Config:
             "VORTEX_UNIT_ID":       "unit_id",
             "VORTEX_UNIT_NAME":     "unit_name",
             "VORTEX_LOCATION":      "location",
+            "VORTEX_FORM_FACTOR":   "form_factor",
+            "VORTEX_PHOTOS_DIR":    "photos_dir",
             "RIVER_SONG_API_URL":   "river_song_api_url",
             "RIVER_SONG_API_KEY":   "river_song_api_key",
             "HA_URL":               "ha_url",

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.constants import ROUTINE_DUCK_VOLUME_LEVEL, ROUTINE_PRESETS_PATH
+from core.presenter import presenter, routine_step_phrase
 from core.ws_hub import ws_hub
 
 logger = logging.getLogger(__name__)
@@ -283,7 +284,16 @@ class RoutineSession:
             raise RoutineError("No routine is currently active.")
 
     async def _broadcast(self) -> None:
-        await ws_hub.broadcast({"type": "routine_update", "routine": self.get_state()})
+        state = self.get_state()
+        # Read each step aloud on every unit. On a Mini the spoken step is the
+        # entire interface; on a Hub the user's hands are covered in flour and
+        # they are not looking at the screen either.
+        await presenter.present(
+            {"type": "routine_update", "routine": state},
+            speech=routine_step_phrase(state),
+            speak_on_screen=True,
+            interrupt=True,
+        )
 
     async def _set_mode(self, mode: str) -> None:
         if self._on_mode_change:

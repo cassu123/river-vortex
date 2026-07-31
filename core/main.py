@@ -27,10 +27,12 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from core import announce_api, intercom_api, lists_api, routines_api, setup_api, timers_api
+from core import (announce_api, diagnostics_api, intercom_api, lists_api,
+                  media_api, photos_api, routines_api, setup_api, timers_api)
 from core.announce import AnnouncementSession
 from core.config import Config, ConfigError, config
 from core.constants import (
+    AMBIENT_PHOTO_DIR,
     BACKEND_HOST,
     BACKEND_PORT,
     CORS_ALLOWED_ORIGINS,
@@ -41,10 +43,15 @@ from core.constants import (
     VERSION,
     VortexState,
 )
+from audio.media_player import MediaPlayer
+from core.diagnostics import Diagnostics
 from core.lists import ListsStore
+from display.photo_library import PhotoLibrary
 from core.routines import RoutineSession
 from core.timers import TimerManager
 from core.ws_hub import ws_hub
+from core.pairing import pairing_session
+from core.voice import voice
 from telemetry.logger import setup_logging
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +71,9 @@ def create_app(
     announcement_session: Optional[AnnouncementSession] = None,
     intercom_manager: Optional[Any] = None,
     lists_store: Optional[ListsStore] = None,
+    photo_library: Optional["PhotoLibrary"] = None,
+    media_player: Optional[MediaPlayer] = None,
+    diagnostics: Optional[Diagnostics] = None,
 ) -> FastAPI:
     """
     Build and configure the FastAPI application instance.
@@ -95,6 +105,15 @@ def create_app(
     Returns:
         A fully configured FastAPI application.
     """
+    # The orchestrator loads config before building the app, but create_app is
+    # also a documented entry point on its own
+    # (uvicorn --factory core.main:create_app). Without this, that path builds
+    # every subsystem against an empty settings dict and silently falls back to
+    # built-in defaults -- which looked exactly like "the photo directory is
+    # empty" rather than "config was never read".
+    if not config.is_loaded():
+        config.load(profile_path=PROFILE_PATH)
+
     app = FastAPI(
         title=SYSTEM_NAME,
         version=VERSION,
@@ -141,6 +160,47 @@ def create_app(
     lists_api.set_lists_store(lists_store)
     app.include_router(lists_api.router)
     app.include_router(lists_api.reminders_router)
+
+    # Ambient photo backdrop — the kiosk pulls the playlist and the image
+    # files from here (see core/photos_api.py, display/photo_library.py).
+    #
+    # Build one from config when the caller did not supply it, so running the
+    # app directly (uvicorn --factory core.main:create_app) still serves
+    # photos rather than 503-ing. The orchestrator passes its own instance.
+    if photo_library is None and config.get("ambient_photos_enabled", True):
+        photo_library = PhotoLibrary(
+            directory=config.get("photos_dir", AMBIENT_PHOTO_DIR),
+            shuffle=bool(config.get("photo_shuffle", True)),
+        )
+    photos_api.set_photo_library(photo_library)
+    app.include_router(photos_api.router)
+
+    # Streaming media — River Song resolves a spoken request into a stream URL
+    # and posts it here; the touchscreen drives the same endpoints, so voice
+    # and touch control one player (see core/media_api.py).
+    media_api.set_media_player(media_player)
+    app.include_router(media_api.router)
+
+    # Boot self-test results — the boot screen reads these (core/diagnostics.py).
+    #
+    # As with the photo library, build and run one when the caller did not
+    # supply it, so `uvicorn --factory core.main:create_app` shows a real boot
+    # screen instead of a permanently empty one. The orchestrator passes its
+    # own instance and has already started it.
+    if diagnostics is None:
+        async def _emit(result, report):
+            await ws_hub.broadcast({"type": "diagnostic", "result": result,
+                                    "report": report})
+
+        diagnostics = Diagnostics(on_result=_emit)
+
+        @app.on_event("startup")
+        async def _run_boot_diagnostics() -> None:
+            """Kick the self-test off once the loop is running."""
+            asyncio.create_task(diagnostics.run(), name="boot-diagnostics")
+
+    diagnostics_api.set_diagnostics(diagnostics)
+    app.include_router(diagnostics_api.router)
 
     # Real-time event stream to the frontend (display mode changes, timer
     # updates, guided routine steps, etc.) — see core/ws_hub.py.
@@ -236,6 +296,10 @@ class RiverVortex:
         self._routine_session = None
         self._announcement_session = None
         self._lists_store = None
+        self._photo_library = None
+        self._ambient_mode = None
+        self._media_player = None
+        self._diagnostics = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -297,9 +361,14 @@ class RiverVortex:
                 self._set_state(VortexState.SETUP)
                 logger.info(
                     "%s is unpaired. Open the River Song app to set up this "
-                    "unit using the pairing PIN shown on its display.",
+                    "unit using its pairing PIN.",
                     SYSTEM_NAME,
                 )
+                # A unit with a screen shows the PIN. A Mini has nowhere to
+                # show it, so it says it out loud — otherwise a screenless
+                # unit could never be paired.
+                pairing_session.generate()
+                await pairing_session.announce()
 
             # Block here until a shutdown signal sets the event
             await self._shutdown_event.wait()
@@ -321,12 +390,11 @@ class RiverVortex:
         config.load(profile_path=PROFILE_PATH)
 
         # Validate required fields — fail fast before any subsystem starts
-        required_keys = [
-            "unit_id",
-            "unit_name",
-        ]
-        for key in required_keys:
-            config.require(key)
+        # Only unit_id is required. unit_name and location are deliberately
+        # empty until pairing sets them -- an unpaired unit must not claim to
+        # be in a room, and requiring them here would stop a fresh unit from
+        # booting far enough to show its own setup screen.
+        config.require("unit_id")
 
         # Warn (don't fail) on missing optional-but-important keys
         if not config.get("ha_token"):
@@ -368,6 +436,18 @@ class RiverVortex:
         and to allow individual modules to be tested in isolation.
         """
         logger.info("Initializing subsystems...")
+
+        # ── Boot self-test ────────────────────────────────────────────────────
+        # First, so the boot screen has something to show while the rest of
+        # the subsystems come up, and so a failure is visible on the panel
+        # rather than buried in a log nobody can reach.
+        try:
+            self._diagnostics = Diagnostics(on_result=self._broadcast_diagnostic)
+            report = self._diagnostics.get_report()
+            asyncio.create_task(self._diagnostics.run(), name="boot-diagnostics")
+            logger.info("Boot self-test running...")
+        except Exception as exc:
+            logger.error("Diagnostics failed to start: %s", exc)
 
         # ── Telemetry ─────────────────────────────────────────────────────────
         try:
@@ -430,6 +510,9 @@ class RiverVortex:
                 from audio.audio_manager import AudioManager
                 self._audio_manager = AudioManager(ha_client=self._ha_client)
                 await self._audio_manager.start()
+                # The presenter speaks through this. Without it a screenless
+                # unit has no way to tell the user anything at all.
+                voice.set_audio_manager(self._audio_manager)
                 logger.info("[OK] Audio manager started.")
             except Exception as exc:
                 logger.error("Audio manager failed to start: %s", exc)
@@ -465,6 +548,23 @@ class RiverVortex:
         else:
             logger.info("[SKIP] Intercom subsystem disabled.")
 
+        # ── Media playback ────────────────────────────────────────────────────
+        # Separate from the Speaker: music is long-running and needs transport
+        # controls and ducking, where the Speaker plays short blocking WAVs.
+        if config.get("cap_audio", True):
+            try:
+                self._media_player = MediaPlayer(on_change=self._broadcast_media_state)
+                await self._media_player.start()
+                if self._media_player.available:
+                    logger.info("[OK] Media player started.")
+                else:
+                    logger.warning(
+                        "Media player unavailable — install mpv to enable "
+                        "music playback: sudo apt install mpv"
+                    )
+            except Exception as exc:
+                logger.error("Media player failed to start: %s", exc)
+
         # ── Timers, Guided Routines & Announcements ─────────────────────────
         # Stateful helpers driven by River Song's voice intent handlers via
         # /api/vortex/v1/timers, /api/vortex/v1/routine, and
@@ -483,6 +583,7 @@ class RiverVortex:
             self._announcement_session = AnnouncementSession(
                 device_control=self._device_control,
                 audio_manager=self._audio_manager,
+                media_player=self._media_player,
             )
             logger.info("[OK] Timers, guided routines, and announcements ready.")
         except Exception as exc:
@@ -499,6 +600,34 @@ class RiverVortex:
             logger.info("[OK] Lists & reminders cache ready.")
         except Exception as exc:
             logger.error("Lists & reminders cache failed to initialize: %s", exc)
+
+        # ── Ambient data (clock, date, weather) ───────────────────────────────
+        # AmbientMode was never instantiated anywhere, so its clock and weather
+        # loops never ran and the ambient screen had no data source at all.
+        try:
+            from display.ambient_mode import AmbientMode
+            self._ambient_mode = AmbientMode()
+            await self._ambient_mode.start()
+            logger.info("[OK] Ambient data loops started.")
+        except Exception as exc:
+            logger.error("Ambient mode failed to start: %s", exc)
+
+        # ── Ambient photos ────────────────────────────────────────────────────
+        # Local-first: photos live on this unit, so the ambient screen keeps
+        # its backdrop when River Song is down or WiFi has dropped. An absent
+        # or empty directory is fine — the screen falls back to the gradient.
+        if config.get("ambient_photos_enabled", True):
+            try:
+                self._photo_library = PhotoLibrary(
+                    directory=config.get("photos_dir"),
+                    shuffle=bool(config.get("photo_shuffle", True)),
+                )
+                count = self._photo_library.rescan()
+                logger.info("[OK] Ambient photo library ready (%d photo(s)).", count)
+            except Exception as exc:
+                logger.error("Photo library failed to initialize: %s", exc)
+        else:
+            logger.info("[SKIP] Ambient photos disabled.")
 
         # ── Watchdog ──────────────────────────────────────────────────────────
         try:
@@ -574,6 +703,9 @@ class RiverVortex:
             announcement_session=self._announcement_session,
             intercom_manager=self._intercom_manager,
             lists_store=self._lists_store,
+            photo_library=self._photo_library,
+            media_player=self._media_player,
+            diagnostics=self._diagnostics,
         )
 
         host = config.get("backend_host", BACKEND_HOST)
@@ -622,6 +754,27 @@ class RiverVortex:
     # Shutdown
     # ─────────────────────────────────────────────────────────────────────────
 
+    async def _broadcast_diagnostic(self, result: Optional[Dict[str, Any]],
+                                    report: Dict[str, Any]) -> None:
+        """
+        Stream one self-test result to the boot screen.
+
+        Called per check rather than once at the end, so the timing on screen
+        is the real timing of the checks rather than a scripted animation.
+        """
+        await ws_hub.broadcast({"type": "diagnostic", "result": result,
+                                "report": report})
+
+    async def _broadcast_media_state(self, state: Dict[str, Any]) -> None:
+        """
+        Push transport state to every connected display.
+
+        Wired into MediaPlayer as its on_change hook so the now-playing screen
+        follows whatever changed it — a screen tap, a voice command, or a
+        track ending.
+        """
+        await ws_hub.broadcast({"type": "media_update", "media": state})
+
     def _handle_shutdown_signal(self) -> None:
         """
         Signal handler for SIGINT and SIGTERM.
@@ -649,6 +802,8 @@ class RiverVortex:
             ("Timers",        self._timer_manager),
             ("Intercom",      self._intercom_manager),
             ("Audio",         self._audio_manager),
+            ("Media",         self._media_player),
+            ("Ambient",       self._ambient_mode),
             ("Screen",        self._screen_manager),
             ("HA Client",     self._ha_client),
             ("Connectivity",  self._connectivity_manager),

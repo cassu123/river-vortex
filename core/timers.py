@@ -21,6 +21,7 @@ import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional
 
+from core.presenter import presenter, timer_done_phrase
 from core.ws_hub import ws_hub
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,13 @@ class TimerManager:
             return
 
         logger.info("Timer '%s' (id=%s) finished.", timer.get("label"), timer_id)
-        await ws_hub.broadcast({"type": "timer_done", "timer": self._public(timer)})
+        # Spoken even on units with a screen — a timer you have to be looking
+        # at the display to notice is no use in a kitchen.
+        await presenter.present(
+            {"type": "timer_done", "timer": self._public(timer)},
+            speech=timer_done_phrase(timer),
+            speak_on_screen=True,
+        )
         await self._broadcast_timers()
 
         if self._on_timer_done:

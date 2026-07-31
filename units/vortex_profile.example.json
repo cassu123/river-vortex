@@ -1,6 +1,9 @@
 {
-  "_comment": "River Vortex unit profile. Identity -- unit_id, unit_name and location -- is deliberately absent: it is written here by the pairing flow (core/setup_api.py) once the unit is installed and named. unit_id is derived per-device on first boot so units flashed from one image stay distinct. See vortex_profile.example.json for a configured unit.",
+  "_comment": "EXAMPLE profile for a configured unit. The shipped vortex_profile.json deliberately has no identity: a fresh unit must not claim to be in a room it was never installed in, and every unit flashed from one image must not share a unit_id. Identity is written by the pairing flow.",
   "configured": false,
+  "unit_id": "vortex-kitchen-01",
+  "unit_name": "Kitchen Vortex",
+  "location": "Kitchen",
   "theme": "dark-river",
   "capabilities": {
     "audio": true,
