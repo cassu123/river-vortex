@@ -155,10 +155,6 @@ WIFI_CHECK_INTERVAL_SECONDS: int = 15
 WIFI_RECONNECT_ATTEMPTS: int = 5
 WIFI_RECONNECT_DELAY_SECONDS: int = 10
 
-CELLULAR_CHECK_INTERVAL_SECONDS: int = 30
-CELLULAR_FALLBACK_ENABLED: bool = True
-CELLULAR_APN_DEFAULT: str = ""             # Set per carrier in profile
-
 CONNECTIVITY_HEALTH_ENDPOINT: str = "https://1.1.1.1"  # Cloudflare DNS — fast ping
 CONNECTIVITY_TIMEOUT_SECONDS: int = 5
 
@@ -201,14 +197,18 @@ class ConnectivityState(Enum):
     """Network connectivity states."""
     WIFI_CONNECTED = auto()
     WIFI_DISCONNECTED = auto()
-    CELLULAR_ACTIVE = auto()
     OFFLINE = auto()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FastAPI / Backend Server
 # ─────────────────────────────────────────────────────────────────────────────
 
-BACKEND_HOST: str = "0.0.0.0"
+# Loopback by default. The kiosk browser runs ON the unit, so nothing needs
+# to reach this port from the network — and the API exposes microphone mute
+# state, camera snapshots and privacy controls. Binding 0.0.0.0 would put all
+# of that in front of anything on the home wifi with no authentication.
+# Override per-unit via the profile only if you know why you need it.
+BACKEND_HOST: str = "127.0.0.1"
 BACKEND_PORT: int = 8080
 BACKEND_RELOAD: bool = False               # Never True in production
 BACKEND_WORKERS: int = 1                   # Single-core Pi — keep at 1

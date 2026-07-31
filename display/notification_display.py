@@ -26,6 +26,32 @@ from core.constants import NOTIFICATION_DISPLAY_DURATION, MAX_NOTIFICATIONS_DISP
 logger = logging.getLogger(__name__)
 
 
+def _schedule(coro, name: str = None):
+    """
+    Schedule a coroutine on the running event loop, if there is one.
+
+    push() is a synchronous method that may be called from the API thread,
+    from a test, or from a subsystem callback — contexts where no event loop
+    is running. asyncio.create_task() raises RuntimeError there, which would
+    propagate out of push() and lose the notification entirely.
+
+    Args:
+        coro: The coroutine to schedule.
+        name: Optional task name for debugging.
+
+    Returns:
+        The created Task, or None if no loop was running (the coroutine is
+        closed in that case so it does not leak an un-awaited warning).
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug("No running event loop — skipping scheduled task '%s'.", name)
+        coro.close()
+        return None
+    return loop.create_task(coro, name=name)
+
+
 class NotificationPriority(IntEnum):
     """Notification priority levels. Higher value = higher priority."""
     LOW = 1
@@ -125,15 +151,16 @@ class NotificationDisplay:
 
         # Wake screen for urgent notifications
         if notification.priority == NotificationPriority.URGENT and self._screen:
-            asyncio.create_task(self._screen.go_dashboard())
+            _schedule(self._screen.go_dashboard(), name="notif-wake-screen")
 
         # Schedule auto-dismiss
         if notification.auto_dismiss:
-            task = asyncio.create_task(
+            task = _schedule(
                 self._auto_dismiss(notification.id, notification.dismiss_after),
                 name=f"dismiss-{notification.id[:8]}",
             )
-            self._dismiss_tasks[notification.id] = task
+            if task is not None:
+                self._dismiss_tasks[notification.id] = task
 
         return notification.id
 

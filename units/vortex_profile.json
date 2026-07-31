@@ -4,15 +4,12 @@
   "unit_name": "Kitchen Vortex",
   "location": "Kitchen",
   "theme": "dark-river",
-
   "capabilities": {
     "audio": true,
     "display": true,
     "intercom": true,
-    "home_assistant": true,
-    "cellular": false
+    "home_assistant": true
   },
-
   "hardware": {
     "screen": "10-inch-touchscreen",
     "screen_width": 1280,
@@ -21,41 +18,30 @@
     "speakers": "usb-stereo-5w",
     "platform": "raspberry-pi-5"
   },
-
   "audio": {
     "wake_word": "vortex",
     "wake_word_sensitivity": 0.5,
     "volume": 70,
     "audio_device_index": -1
   },
-
   "display": {
     "screen_brightness": 80,
     "ambient_mode_enabled": true,
     "ambient_timeout": 300,
     "screen_rotation": 0
   },
-
   "intercom": {
     "intercom_enabled": true,
     "intercom_port": 5005
   },
-
   "privacy": {
     "privacy_mic_mute_on_startup": false,
     "privacy_cam_mute_on_startup": false
   },
-
-  "network": {
-    "cellular_enabled": false,
-    "cellular_apn": ""
-  },
-
   "backend": {
-    "backend_host": "0.0.0.0",
+    "backend_host": "127.0.0.1",
     "backend_port": 8080
   },
-
   "logging": {
     "log_level": "INFO",
     "log_dir": "/var/log/river-vortex"
