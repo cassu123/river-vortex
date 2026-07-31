@@ -59,6 +59,8 @@ class Speaker:
         self._playback_thread: Optional[threading.Thread] = None
         self._running: bool = False
         self._current_playback_stop = threading.Event()
+        # True only while _play_item is actually pushing frames to the device.
+        self._playing: bool = False
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -154,8 +156,14 @@ class Speaker:
         return self._volume
 
     def is_playing(self) -> bool:
-        """Return True if audio is currently being played."""
-        return not self._playback_queue.empty() or not self._current_playback_stop.is_set()
+        """
+        Return True if audio is queued or actively playing.
+
+        Note: _current_playback_stop is an interrupt flag, not a "playing"
+        flag — it is unset at rest, so testing it here would report True
+        whenever the speaker was idle.
+        """
+        return self._playing or not self._playback_queue.empty()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Private
@@ -177,10 +185,13 @@ class Speaker:
                 break  # Shutdown sentinel
 
             self._current_playback_stop.clear()
+            self._playing = True
             try:
                 self._play_item(item)
             except Exception as exc:  # pylint: disable=broad-except
                 logger.error("Playback error: %s", exc)
+            finally:
+                self._playing = False
 
     def _play_item(self, audio: Union[bytes, str, Path]) -> None:
         """
@@ -204,15 +215,17 @@ class Speaker:
             else:
                 audio_bytes = audio
 
-            # Apply volume scaling
-            audio_bytes = self._apply_volume(audio_bytes)
-
-            # Play via PyAudio
+            # Play via PyAudio.
+            #
+            # Volume is applied per-frame BELOW, not to the whole byte string.
+            # Scaling the entire WAV would corrupt the 44-byte RIFF header
+            # along with the samples, and wave.open() would then reject it.
             buf = io.BytesIO(audio_bytes)
             with wave.open(buf, "rb") as wf:
+                sample_width = wf.getsampwidth()
                 pa = pyaudio.PyAudio()
                 stream = pa.open(
-                    format=pa.get_format_from_width(wf.getsampwidth()),
+                    format=pa.get_format_from_width(sample_width),
                     channels=wf.getnchannels(),
                     rate=wf.getframerate(),
                     output=True,
@@ -220,7 +233,7 @@ class Speaker:
                 chunk_size = 1024
                 data = wf.readframes(chunk_size)
                 while data and not self._current_playback_stop.is_set():
-                    stream.write(data)
+                    stream.write(self._apply_volume(data, sample_width))
                     data = wf.readframes(chunk_size)
                 stream.stop_stream()
                 stream.close()
@@ -229,23 +242,36 @@ class Speaker:
         except Exception as exc:
             raise SpeakerError(f"Failed to play audio: {exc}") from exc
 
-    def _apply_volume(self, audio_bytes: bytes) -> bytes:
+    def _apply_volume(self, pcm_frames: bytes, sample_width: int = 2) -> bytes:
         """
-        Scale PCM audio amplitude by the current volume level.
+        Scale raw PCM frame amplitude by the current volume level.
+
+        Takes PCM FRAMES ONLY — never a whole WAV file. Passing a full WAV
+        here would scale the RIFF header bytes as if they were samples and
+        produce an unplayable stream.
 
         Args:
-            audio_bytes: Raw PCM bytes (int16).
+            pcm_frames:   Raw PCM frame bytes (no container header).
+            sample_width: Bytes per sample. Only 16-bit (2) is scaled;
+                          other widths are passed through untouched.
 
         Returns:
             Volume-adjusted PCM bytes.
         """
-        import struct
         import array
 
-        if self._volume == 100:
-            return audio_bytes
+        if self._volume == 100 or not pcm_frames:
+            return pcm_frames
+
+        # array('h') requires 16-bit samples and an even byte count. A partial
+        # final frame would raise, so pass anything unexpected through rather
+        # than dropping audio.
+        if sample_width != 2 or len(pcm_frames) % 2 != 0:
+            return pcm_frames
 
         scale = self._volume / 100.0
-        samples = array.array("h", audio_bytes)
-        scaled = array.array("h", (int(s * scale) for s in samples))
-        return scaled.tobytes()
+        samples = array.array("h", pcm_frames)
+        for i, sample in enumerate(samples):
+            # Clamp to int16 range — scale is <= 1.0 so this is belt-and-braces.
+            samples[i] = max(-32768, min(32767, int(sample * scale)))
+        return samples.tobytes()

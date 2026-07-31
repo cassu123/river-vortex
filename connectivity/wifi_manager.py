@@ -3,7 +3,7 @@
 Project:     River Vortex — Smart Home Hub for the River Song AI Ecosystem
 File:        connectivity/wifi_manager.py
 Purpose:     WiFi connectivity monitoring and management. Periodically checks
-             network reachability, triggers cellular fallback when WiFi is lost,
+             network reachability and reports connectivity state to the system,
              and notifies other subsystems of connectivity state changes.
 Author:      [Author Placeholder]
 Version:     1.0.0
@@ -30,13 +30,14 @@ logger = logging.getLogger(__name__)
 
 class WiFiManager:
     """
-    Monitors WiFi connectivity and manages fallback to cellular.
+    Monitors WiFi connectivity and reports reachability state.
 
     Runs a background async task that periodically checks reachability.
     Notifies registered listeners when connectivity state changes.
 
-    Cellular fallback is triggered automatically when WiFi is lost and
-    cellular is enabled in the unit profile.
+    These units are WiFi-only — there is no cellular fallback. When WiFi
+    is lost the unit is offline until it returns, so listeners should
+    degrade to cached state rather than assume another path exists.
     """
 
     def __init__(self) -> None:
