@@ -45,6 +45,8 @@ from core.lists import ListsStore
 from core.routines import RoutineSession
 from core.timers import TimerManager
 from core.ws_hub import ws_hub
+from core.pairing import pairing_session
+from core.voice import voice
 from telemetry.logger import setup_logging
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -297,9 +299,14 @@ class RiverVortex:
                 self._set_state(VortexState.SETUP)
                 logger.info(
                     "%s is unpaired. Open the River Song app to set up this "
-                    "unit using the pairing PIN shown on its display.",
+                    "unit using its pairing PIN.",
                     SYSTEM_NAME,
                 )
+                # A unit with a screen shows the PIN. A Mini has nowhere to
+                # show it, so it says it out loud — otherwise a screenless
+                # unit could never be paired.
+                pairing_session.generate()
+                await pairing_session.announce()
 
             # Block here until a shutdown signal sets the event
             await self._shutdown_event.wait()
@@ -430,6 +437,9 @@ class RiverVortex:
                 from audio.audio_manager import AudioManager
                 self._audio_manager = AudioManager(ha_client=self._ha_client)
                 await self._audio_manager.start()
+                # The presenter speaks through this. Without it a screenless
+                # unit has no way to tell the user anything at all.
+                voice.set_audio_manager(self._audio_manager)
                 logger.info("[OK] Audio manager started.")
             except Exception as exc:
                 logger.error("Audio manager failed to start: %s", exc)

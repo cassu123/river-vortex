@@ -19,6 +19,7 @@ import secrets
 from typing import Optional
 
 from core.constants import PAIRING_PIN_LENGTH
+from core.presenter import presenter
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,30 @@ class PairingSession:
     def clear(self) -> None:
         """Clear the current PIN (called once pairing succeeds)."""
         self._pin = None
+
+    async def announce(self) -> None:
+        """
+        Make the current pairing PIN perceivable on this unit.
+
+        A unit with a screen displays it. A Mini has nowhere to show it, so it
+        reads the digits aloud — otherwise a screenless unit could never be
+        set up at all, because the PIN would exist only in a log file.
+
+        Digits are spaced so they are spoken individually ("four one seven
+        two") rather than as one large number.
+        """
+        if self._pin is None:
+            return
+
+        spoken = " ".join(self._pin)
+        await presenter.present(
+            {"type": "pairing_pin", "pin": self._pin},
+            speech=(
+                f"To set me up, open River Song and enter the code {spoken}. "
+                f"Again, {spoken}."
+            ),
+            speak_on_screen=False,  # a screen already shows it
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

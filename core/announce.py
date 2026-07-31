@@ -27,6 +27,7 @@ from core.constants import (
     ANNOUNCEMENT_DUCK_VOLUME_LEVEL,
     ANNOUNCEMENT_MAX_DURATION_SECONDS,
 )
+from core.presenter import presenter
 from core.ws_hub import ws_hub
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,13 @@ class AnnouncementSession:
             "timestamp": datetime.now().isoformat(),
         }
 
-        await ws_hub.broadcast({"type": "announcement", "announcement": announcement})
+        # An announcement that is only drawn on screen is not an
+        # announcement. Always spoken, on every form factor.
+        await presenter.present(
+            {"type": "announcement", "announcement": announcement},
+            speech=message,
+            speak_on_screen=True,
+        )
 
         if self._audio_manager:
             try:

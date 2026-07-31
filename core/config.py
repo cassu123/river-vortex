@@ -261,6 +261,11 @@ class Config:
             "ambient_timeout": AMBIENT_MODE_TIMEOUT_SECONDS,
             "theme": "dark-river",
 
+            # Physical shape of this unit: "hub_max" (10"), "hub" (7") or
+            # "mini" (no screen at all). Drives which output surfaces the
+            # presenter uses, and which layout the frontend picks.
+            "form_factor": "hub",
+
             # Intercom
             "intercom_enabled": True,
             "intercom_port": INTERCOM_PORT,
@@ -368,6 +373,7 @@ class Config:
             "VORTEX_UNIT_ID":       "unit_id",
             "VORTEX_UNIT_NAME":     "unit_name",
             "VORTEX_LOCATION":      "location",
+            "VORTEX_FORM_FACTOR":   "form_factor",
             "RIVER_SONG_API_URL":   "river_song_api_url",
             "RIVER_SONG_API_KEY":   "river_song_api_key",
             "HA_URL":               "ha_url",
