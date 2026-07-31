@@ -177,7 +177,14 @@ def routine_step_phrase(routine: Dict[str, Any]) -> Optional[str]:
     if not step:
         return None
 
-    text = step.get("text") if isinstance(step, dict) else str(step)
+    if isinstance(step, dict):
+        # "instruction" is the canonical field — see RoutineSession's presets
+        # and the RoutineStep model in core/routines_api.py. "text" is only a
+        # tolerated alias; reading the wrong one leaves River silent on every
+        # single step, which is the entire feature on a screenless unit.
+        text = step.get("instruction") or step.get("text")
+    else:
+        text = str(step)
     if not text:
         return None
 

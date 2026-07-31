@@ -285,8 +285,8 @@ function PageRouter({ page }) {
 function PresenceOverlay({ presence, amplitudeRef }) {
   if (presence.state === 'idle') return null;
   return (
-    <div style={styles.overlay}>
-      <Orb presence={presence} amplitudeRef={amplitudeRef} size={104} />
+    <div className="presence-overlay orb-wrap--compact">
+      <Orb presence={presence} amplitudeRef={amplitudeRef} size={84} />
     </div>
   );
 }
@@ -355,18 +355,5 @@ const styles = {
     overflow: 'hidden',
     position: 'relative',
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  },
-  overlay: {
-    position: 'absolute',
-    bottom: 24,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 100,
-    pointerEvents: 'none',
-    // No backdrop-filter here: it is a per-frame GPU cost on the Pi 4 and
-    // the orb's own bloom already separates it from the page behind it.
   },
 };

@@ -171,3 +171,49 @@
     animation: none;
   }
 }
+
+/* ── Compact overlay variant ───────────────────────────────────────────────
+   The orb shown over an interactive page: smaller, tighter, so it reads as a
+   status indicator rather than taking over the screen. */
+.orb-wrap--compact .orb-wrap,
+.orb-wrap--compact {
+  gap: 8px;
+}
+
+.orb-wrap--compact .orb__caption {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  /* Keeps the caption legible over whatever page is behind it. */
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+}
+
+/* ── Presence overlay placement ────────────────────────────────────────────
+   Where River's orb floats over an interactive page. This has to dodge two
+   things that exist on nearly every page: a full-width bottom navigation or
+   Back/Next bar, and the top header row. */
+
+.presence-overlay {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  pointer-events: none;
+  /* Tall screens (10" Hub Max): sit above the bottom bar. */
+  bottom: 96px;
+}
+
+/* Short screens (7" Hub at 800x480) have no room above the bottom bar --
+   at bottom: 96 the orb landed on the recipe step text. Dock it to the top
+   centre instead, which is empty on every page: headers put their content
+   at the left and right edges. */
+@media (max-height: 600px) {
+  .presence-overlay {
+    top: 4px;
+    bottom: auto;
+    transform: translateX(-50%) scale(0.55);
+    transform-origin: top center;
+  }
+  .presence-overlay .orb__caption {
+    display: none;
+  }
+}
