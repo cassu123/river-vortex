@@ -26,6 +26,7 @@ from core.constants import (
     RIVER_SONG_COMMAND_ENDPOINT,
     RIVER_SONG_HEALTH_ENDPOINT,
     RIVER_SONG_STATUS_ENDPOINT,
+    RIVER_SONG_SURFACE_ACTION_ENDPOINT,
 )
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,57 @@ class APIClient:
             raise APIClientError(f"River Song API timed out: {exc}") from exc
         except httpx.RequestError as exc:
             raise APIClientError(f"River Song API request failed: {exc}") from exc
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Surfaces
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def send_surface_action(self, surface_id: str, intent: str) -> Dict[str, Any]:
+        """
+        Report that someone tapped a button on a surface card.
+
+        The unit deliberately does not act on the intent itself. River Song
+        pushed the card, River Song knows what the button meant, and River
+        Song re-checks whether the action is permitted — a confirm card on a
+        wall panel must not become a second, weaker permission system.
+
+        Args:
+            surface_id: The id of the card that was tapped.
+            intent:     The opaque intent string River Song attached to the
+                        button. Vortex never parses it.
+
+        Returns:
+            River Song's response body.
+
+        Raises:
+            APIClientError: On network failure or non-2xx response. The caller
+                            leaves the card on screen when this raises, so a
+                            tap that never arrived does not look like it did.
+        """
+        url = f"{self._base_url}{RIVER_SONG_SURFACE_ACTION_ENDPOINT}"
+        payload = {"surface_id": surface_id, "intent": intent, "unit_id": self._unit_id}
+
+        try:
+            async with httpx.AsyncClient(
+                headers=self._headers,
+                timeout=httpx.Timeout(connect=API_CONNECT_TIMEOUT, read=API_READ_TIMEOUT),
+            ) as client:
+                response = await client.post(url, json=payload)
+        except httpx.TimeoutException as exc:
+            raise APIClientError(f"River Song API timed out: {exc}") from exc
+        except httpx.RequestError as exc:
+            raise APIClientError(f"River Song API request failed: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise APIClientError(
+                f"River Song surface action returned {response.status_code}: "
+                f"{response.text[:200]}"
+            )
+        try:
+            return response.json()
+        except ValueError:
+            # A 2xx with no body is a perfectly good acknowledgement.
+            return {"accepted": True}
 
     # ─────────────────────────────────────────────────────────────────────────
     # Status & Health

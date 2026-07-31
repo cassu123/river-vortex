@@ -13,6 +13,7 @@ import App from './App';
 import './presence/orb.css';
 import './components/photoBackdrop.css';
 import './pages/boot.css';
+import './surfaces/surfaces.css';
 
 const container = document.getElementById('root');
 
