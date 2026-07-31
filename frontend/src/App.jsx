@@ -220,11 +220,6 @@ function handleMessage(msg, dispatch, amplitudeRef) {
     }
     case 'diagnostic':
       dispatch({ type: 'SET_DIAGNOSTICS', payload: msg.report });
-      // Hold the boot screen until the self-test finishes, then hand over.
-      // A brief pause lets the final verdict actually be read.
-      if (msg.report && msg.report.complete) {
-        setTimeout(() => dispatch({ type: 'BOOT_COMPLETE' }), 1400);
-      }
       break;
     case 'media_update':
       dispatch({ type: 'SET_MEDIA', payload: msg.media });
@@ -337,6 +332,32 @@ export default function App() {
   const amplitudeRef = useRef(0);
 
   useBackendSocket(dispatch, amplitudeRef);
+
+  // The kiosk browser normally starts AFTER the backend, so the self-test can
+  // already be finished by the time we connect and no 'diagnostic' frame will
+  // ever arrive. Fetch the report once so a late start still sees it — and so
+  // the handover below fires rather than waiting out the failsafe.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/vortex/v1/diagnostics')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data && data.results?.length) {
+          dispatch({ type: 'SET_DIAGNOSTICS', payload: data });
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Leave the boot screen once the self-test is done, whichever route the
+  // report arrived by. The pause lets the final verdict actually be read.
+  const bootDone = state.diagnostics?.complete;
+  useEffect(() => {
+    if (!bootDone) return undefined;
+    const id = setTimeout(() => dispatch({ type: 'BOOT_COMPLETE' }), 1400);
+    return () => clearTimeout(id);
+  }, [bootDone]);
 
   // Failsafe: never strand the unit on the boot screen. If the self-test
   // never reports -- backend crashed, WebSocket never connected -- hand over

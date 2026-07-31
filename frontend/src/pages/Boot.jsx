@@ -17,10 +17,8 @@
  * ============================================================================
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { PALETTES } from '../presence/presenceContract';
-
-const DIAGNOSTICS_URL = '/api/vortex/v1/diagnostics';
 
 /** Tag shown against each check, and the colour it takes. */
 const STATUS_STYLE = {
@@ -34,29 +32,14 @@ const STATUS_STYLE = {
  * Boot / self-test screen.
  *
  * @param {object} props
- * @param {object} [props.report] - Live report pushed over the WebSocket.
- *        When absent, the component fetches whatever has already run — the
- *        kiosk browser usually starts after the backend and would otherwise
- *        miss the stream entirely.
+ * @param {object} [props.report] - The self-test report. App owns fetching it
+ *        and following the live stream; this component only renders.
  */
-export default function Boot({ report: liveReport }) {
-  const [fetched, setFetched] = useState(null);
+export default function Boot({ report }) {
   const scrollRef = useRef(null);
 
-  const report = liveReport && liveReport.results?.length ? liveReport : fetched;
   const results = report?.results || [];
   const complete = report?.complete;
-
-  // Catch up on anything that ran before the browser was ready.
-  useEffect(() => {
-    if (liveReport && liveReport.results?.length) return undefined;
-    let cancelled = false;
-    fetch(DIAGNOSTICS_URL)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (!cancelled && data) setFetched(data); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [liveReport]);
 
   // Keep the newest line in view as checks complete.
   useEffect(() => {

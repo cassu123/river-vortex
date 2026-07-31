@@ -390,12 +390,11 @@ class RiverVortex:
         config.load(profile_path=PROFILE_PATH)
 
         # Validate required fields — fail fast before any subsystem starts
-        required_keys = [
-            "unit_id",
-            "unit_name",
-        ]
-        for key in required_keys:
-            config.require(key)
+        # Only unit_id is required. unit_name and location are deliberately
+        # empty until pairing sets them -- an unpaired unit must not claim to
+        # be in a room, and requiring them here would stop a fresh unit from
+        # booting far enough to show its own setup screen.
+        config.require("unit_id")
 
         # Warn (don't fail) on missing optional-but-important keys
         if not config.get("ha_token"):

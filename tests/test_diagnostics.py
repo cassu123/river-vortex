@@ -16,6 +16,7 @@ License:     Internal Use Only — River Song AI / riversongai.com
 
 import asyncio
 import unittest
+import unittest.mock
 from unittest.mock import patch
 
 from core.diagnostics import CheckStatus, Diagnostics
@@ -158,6 +159,70 @@ class TestIndividualChecks(unittest.TestCase):
         """If this fails, nothing else could have run to report it."""
         status, _ = Diagnostics()._check_runtime()
         self.assertEqual(status, CheckStatus.OK)
+
+
+class TestUnpairedIdentity(unittest.TestCase):
+    """A unit in its box must not claim to be in a room."""
+
+    def test_unpaired_config_check_names_no_room(self):
+        from core.config import config
+        with patch.object(config, "get", side_effect=lambda k, d=None: {
+            "unit_id": "vortex-abc123", "configured": False,
+            "unit_name": "", "location": "",
+        }.get(k, d)), patch.object(config, "is_loaded", return_value=True):
+            status, detail = Diagnostics()._check_config()
+        self.assertEqual(status, CheckStatus.WARN)
+        self.assertIn("unpaired", detail)
+        # The whole point: no room name anywhere in that line.
+        self.assertNotIn("Kitchen", detail)
+        self.assertNotIn("@", detail)
+
+    def test_paired_config_check_reports_name_and_room(self):
+        from core.config import config
+        with patch.object(config, "get", side_effect=lambda k, d=None: {
+            "unit_id": "vortex-abc123", "configured": True,
+            "unit_name": "Kitchen Vortex", "location": "Kitchen",
+        }.get(k, d)), patch.object(config, "is_loaded", return_value=True):
+            status, detail = Diagnostics()._check_config()
+        self.assertEqual(status, CheckStatus.OK)
+        self.assertIn("Kitchen Vortex", detail)
+
+
+class TestShippedProfile(unittest.TestCase):
+    """The image that gets flashed onto every unit."""
+
+    def test_shipped_profile_carries_no_identity(self):
+        import json, pathlib
+        profile = json.loads(pathlib.Path("units/vortex_profile.json").read_text())
+        for key in ("unit_id", "unit_name", "location"):
+            self.assertNotIn(key, profile,
+                             f"{key} must not be baked into the shipped image")
+
+    def test_shipped_profile_is_unconfigured(self):
+        import json, pathlib
+        profile = json.loads(pathlib.Path("units/vortex_profile.json").read_text())
+        self.assertFalse(profile.get("configured", False))
+
+
+class TestDerivedUnitId(unittest.TestCase):
+    """Units flashed from one image must not collide."""
+
+    def test_pi_serial_is_preferred(self):
+        from core.config import _derive_unit_id
+        cpuinfo = "processor\t: 0\nSerial\t\t: 100000001a2b3c4d\n"
+        with patch("builtins.open", unittest.mock.mock_open(read_data=cpuinfo)):
+            unit_id = _derive_unit_id()
+        self.assertTrue(unit_id.startswith("vortex-"))
+        self.assertIn("1a2b3c4d", unit_id)
+
+    def test_an_id_is_always_produced(self):
+        from core.config import _derive_unit_id
+        self.assertTrue(_derive_unit_id().startswith("vortex-"))
+
+    def test_the_id_is_stable_across_calls(self):
+        """It identifies the board, so it must not change between reboots."""
+        from core.config import _derive_unit_id
+        self.assertEqual(_derive_unit_id(), _derive_unit_id())
 
 
 if __name__ == "__main__":

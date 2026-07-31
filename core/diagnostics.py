@@ -58,6 +58,7 @@ class Diagnostics:
         self._results: List[Dict[str, Any]] = []
         self._complete: bool = False
         self._started_at: float = 0.0
+        self._finished_at: float = 0.0
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public API
@@ -77,6 +78,7 @@ class Diagnostics:
         self._results = []
         self._complete = False
         self._started_at = time.monotonic()
+        self._finished_at = 0.0
 
         for label, check in self._checks():
             started = time.monotonic()
@@ -97,6 +99,7 @@ class Diagnostics:
             await self._emit(result)
 
         self._complete = True
+        self._finished_at = time.monotonic()
         await self._emit(None)  # completion sentinel
         return self._results
 
@@ -118,8 +121,12 @@ class Diagnostics:
             "complete": self._complete,
             "counts": counts,
             "healthy": counts[CheckStatus.FAIL] == 0,
-            "elapsed_ms": int((time.monotonic() - self._started_at) * 1000)
-            if self._started_at else 0,
+            # Freeze at completion. Measuring against "now" made the total
+            # climb forever once the run had finished, so a report fetched a
+            # minute later claimed the self-test took a minute.
+            "elapsed_ms": int(
+                ((self._finished_at or time.monotonic()) - self._started_at) * 1000
+            ) if self._started_at else 0,
         }
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -161,10 +168,13 @@ class Diagnostics:
         """Configuration loaded, and whether this unit has been paired."""
         if not config.is_loaded():
             return CheckStatus.FAIL, "configuration not loaded"
-        unit = config.get("unit_name") or "unnamed"
+        unit_id = config.get("unit_id") or "unknown"
         if not config.get("configured", False):
-            return CheckStatus.WARN, f"{unit} — unpaired, setup required"
-        return CheckStatus.OK, f"{unit} @ {config.get('location', 'unknown')}"
+            # No name, no room -- this unit has not been installed anywhere yet.
+            return CheckStatus.WARN, f"{unit_id} — unpaired, setup required"
+        name = config.get("unit_name") or unit_id
+        location = config.get("location")
+        return CheckStatus.OK, f"{name} @ {location}" if location else name
 
     def _check_storage(self):
         """
