@@ -27,8 +27,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from core import (announce_api, intercom_api, lists_api, media_api,
-                  photos_api, routines_api, setup_api, timers_api)
+from core import (announce_api, diagnostics_api, intercom_api, lists_api,
+                  media_api, photos_api, routines_api, setup_api, timers_api)
 from core.announce import AnnouncementSession
 from core.config import Config, ConfigError, config
 from core.constants import (
@@ -44,6 +44,7 @@ from core.constants import (
     VortexState,
 )
 from audio.media_player import MediaPlayer
+from core.diagnostics import Diagnostics
 from core.lists import ListsStore
 from display.photo_library import PhotoLibrary
 from core.routines import RoutineSession
@@ -72,6 +73,7 @@ def create_app(
     lists_store: Optional[ListsStore] = None,
     photo_library: Optional["PhotoLibrary"] = None,
     media_player: Optional[MediaPlayer] = None,
+    diagnostics: Optional[Diagnostics] = None,
 ) -> FastAPI:
     """
     Build and configure the FastAPI application instance.
@@ -179,6 +181,27 @@ def create_app(
     media_api.set_media_player(media_player)
     app.include_router(media_api.router)
 
+    # Boot self-test results — the boot screen reads these (core/diagnostics.py).
+    #
+    # As with the photo library, build and run one when the caller did not
+    # supply it, so `uvicorn --factory core.main:create_app` shows a real boot
+    # screen instead of a permanently empty one. The orchestrator passes its
+    # own instance and has already started it.
+    if diagnostics is None:
+        async def _emit(result, report):
+            await ws_hub.broadcast({"type": "diagnostic", "result": result,
+                                    "report": report})
+
+        diagnostics = Diagnostics(on_result=_emit)
+
+        @app.on_event("startup")
+        async def _run_boot_diagnostics() -> None:
+            """Kick the self-test off once the loop is running."""
+            asyncio.create_task(diagnostics.run(), name="boot-diagnostics")
+
+    diagnostics_api.set_diagnostics(diagnostics)
+    app.include_router(diagnostics_api.router)
+
     # Real-time event stream to the frontend (display mode changes, timer
     # updates, guided routine steps, etc.) — see core/ws_hub.py.
     @app.websocket("/api/ws")
@@ -276,6 +299,7 @@ class RiverVortex:
         self._photo_library = None
         self._ambient_mode = None
         self._media_player = None
+        self._diagnostics = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -413,6 +437,18 @@ class RiverVortex:
         and to allow individual modules to be tested in isolation.
         """
         logger.info("Initializing subsystems...")
+
+        # ── Boot self-test ────────────────────────────────────────────────────
+        # First, so the boot screen has something to show while the rest of
+        # the subsystems come up, and so a failure is visible on the panel
+        # rather than buried in a log nobody can reach.
+        try:
+            self._diagnostics = Diagnostics(on_result=self._broadcast_diagnostic)
+            report = self._diagnostics.get_report()
+            asyncio.create_task(self._diagnostics.run(), name="boot-diagnostics")
+            logger.info("Boot self-test running...")
+        except Exception as exc:
+            logger.error("Diagnostics failed to start: %s", exc)
 
         # ── Telemetry ─────────────────────────────────────────────────────────
         try:
@@ -670,6 +706,7 @@ class RiverVortex:
             lists_store=self._lists_store,
             photo_library=self._photo_library,
             media_player=self._media_player,
+            diagnostics=self._diagnostics,
         )
 
         host = config.get("backend_host", BACKEND_HOST)
@@ -717,6 +754,17 @@ class RiverVortex:
     # ─────────────────────────────────────────────────────────────────────────
     # Shutdown
     # ─────────────────────────────────────────────────────────────────────────
+
+    async def _broadcast_diagnostic(self, result: Optional[Dict[str, Any]],
+                                    report: Dict[str, Any]) -> None:
+        """
+        Stream one self-test result to the boot screen.
+
+        Called per check rather than once at the end, so the timing on screen
+        is the real timing of the checks rather than a scripted animation.
+        """
+        await ws_hub.broadcast({"type": "diagnostic", "result": result,
+                                "report": report})
 
     async def _broadcast_media_state(self, state: Dict[str, Any]) -> None:
         """

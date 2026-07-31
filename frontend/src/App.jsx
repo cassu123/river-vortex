@@ -23,6 +23,7 @@ import Lists from './pages/Lists';
 import Setup from './pages/Setup';
 import Screensaver from './pages/Screensaver';
 import NowPlaying from './pages/NowPlaying';
+import Boot from './pages/Boot';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import IntercomBanner from './components/IntercomBanner';
 import ReminderBanner from './components/ReminderBanner';
@@ -35,7 +36,7 @@ import { IDLE_PRESENCE, makePresence } from './presence/presenceContract';
 
 const initialState = {
   /** Current display page: 'loading' | 'setup' | 'ambient' | 'dashboard' | 'devices' | 'cameras' */
-  page: 'loading',
+  page: 'boot',
   /** WebSocket connection status */
   wsConnected: false,
   /** Latest ambient data from backend */
@@ -66,6 +67,8 @@ const initialState = {
   reminders: [],
   /** Media transport state (see audio/media_player.py) */
   media: { state: 'idle', now_playing: {} },
+  /** Boot self-test report (see core/diagnostics.py) */
+  diagnostics: null,
   /**
    * River's presence — {state, amplitude, mood, caption}. Drives the orb
    * today and the Rive / holographic avatar later. See presenceContract.js.
@@ -123,6 +126,13 @@ function appReducer(state, action) {
       return { ...state, reminders: action.payload };
     case 'SET_MEDIA':
       return { ...state, media: action.payload };
+    case 'SET_DIAGNOSTICS':
+      return { ...state, diagnostics: action.payload };
+    case 'BOOT_COMPLETE':
+      // Only leave the boot screen — never yank the user off a page they
+      // navigated to while the self-test was still finishing.
+      if (state.page !== 'boot') return state;
+      return { ...state, page: state.system.configured === false ? 'setup' : 'ambient' };
     default:
       return state;
   }
@@ -208,6 +218,14 @@ function handleMessage(msg, dispatch, amplitudeRef) {
       dispatch({ type: 'SET_PRESENCE', payload: presence });
       break;
     }
+    case 'diagnostic':
+      dispatch({ type: 'SET_DIAGNOSTICS', payload: msg.report });
+      // Hold the boot screen until the self-test finishes, then hand over.
+      // A brief pause lets the final verdict actually be read.
+      if (msg.report && msg.report.complete) {
+        setTimeout(() => dispatch({ type: 'BOOT_COMPLETE' }), 1400);
+      }
+      break;
     case 'media_update':
       dispatch({ type: 'SET_MEDIA', payload: msg.media });
       break;
@@ -262,7 +280,7 @@ function handleMessage(msg, dispatch, amplitudeRef) {
 // Page router
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PageRouter({ page }) {
+function PageRouter({ page, diagnostics }) {
   switch (page) {
     case 'loading':   return null;
     case 'setup':     return <Setup />;
@@ -270,6 +288,7 @@ function PageRouter({ page }) {
     case 'devices':   return <Devices />;
     case 'cameras':   return <Cameras />;
     // Burn-in protection stages, driven by display/screen_manager.py.
+    case 'boot':      return <Boot report={diagnostics} />;
     case 'nowplaying': return <NowPlaying />;
     case 'screensaver': return <Screensaver />;
     // Backlight is off; render pure black so waking does not flash the
@@ -319,6 +338,14 @@ export default function App() {
 
   useBackendSocket(dispatch, amplitudeRef);
 
+  // Failsafe: never strand the unit on the boot screen. If the self-test
+  // never reports -- backend crashed, WebSocket never connected -- hand over
+  // anyway so the panel is at least usable.
+  useEffect(() => {
+    const id = setTimeout(() => dispatch({ type: 'BOOT_COMPLETE' }), 20000);
+    return () => clearTimeout(id);
+  }, []);
+
   const navigate = useCallback((page) => {
     dispatch({ type: 'SET_PAGE', payload: page });
   }, []);
@@ -331,11 +358,18 @@ export default function App() {
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
+        // Record whether this unit is paired, but do NOT route here. The boot
+        // screen owns the first transition and reads system.configured when
+        // the self-test completes — routing from both places raced, and this
+        // one always won, so the boot screen was never seen at all.
         dispatch({ type: 'UPDATE_SYSTEM', payload: data });
-        dispatch({ type: 'SET_PAGE', payload: data.configured ? 'ambient' : 'setup' });
       })
       .catch(() => {
-        if (!cancelled) dispatch({ type: 'SET_PAGE', payload: 'ambient' });
+        // Backend unreachable. Mark it unconfigured so the boot screen hands
+        // over to Setup rather than an ambient screen with no data behind it.
+        if (!cancelled) {
+          dispatch({ type: 'UPDATE_SYSTEM', payload: { configured: false } });
+        }
       });
     return () => {
       cancelled = true;
@@ -347,7 +381,7 @@ export default function App() {
   return (
     <AppContext.Provider value={contextValue}>
       <div style={styles.root}>
-        <PageRouter page={state.page} />
+        <PageRouter page={state.page} diagnostics={state.diagnostics} />
         <IntercomBanner />
         <AnnouncementBanner />
         <ReminderBanner />

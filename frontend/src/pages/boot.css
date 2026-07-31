@@ -1,0 +1,192 @@
+/*
+ * ============================================================================
+ * Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+ * File:     frontend/src/pages/boot.css
+ * Purpose:  Boot / self-test screen styling. Halo palette from
+ *           presence/presenceContract.js — pale cyan on deep navy.
+ *
+ *           PERFORMANCE — same contract as the orb. The scanline overlay is a
+ *           static repeating gradient translated on the compositor, never a
+ *           repainted background. This screen is only up for a few seconds,
+ *           but a Pi 4 mid-boot is the most contended the CPU ever gets.
+ * ============================================================================
+ */
+
+.boot {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 0%, #0d2233 0%, #060b12 55%, #04070b 100%);
+  color: #b0e0f0;
+  font-family: 'DejaVu Sans Mono', 'SF Mono', Menlo, Consolas, monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Scanlines. Drifting slowly downward gives the CRT feel without repainting. */
+.boot__scan {
+  position: absolute;
+  inset: -100% 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(120, 200, 230, 0.045) 0px,
+    rgba(120, 200, 230, 0.045) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  animation: boot-scan 9s linear infinite;
+  will-change: transform;
+}
+
+.boot__inner {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 1000px);
+  padding: clamp(16px, 4vh, 48px) clamp(18px, 4vw, 56px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 2.2vh, 26px);
+  height: 100%;
+  justify-content: center;
+}
+
+/* ── Masthead ──────────────────────────────────────────────────────────────*/
+
+.boot__head {
+  border-left: 2px solid #78c8e6;
+  padding-left: 14px;
+  flex-shrink: 0;
+}
+
+.boot__title {
+  font-size: clamp(20px, 3.4vw, 40px);
+  letter-spacing: 0.32em;
+  color: #e6f6ff;
+  text-shadow: 0 0 18px rgba(120, 200, 230, 0.45);
+}
+
+.boot__sub {
+  margin-top: 4px;
+  font-size: clamp(9px, 1.2vw, 13px);
+  letter-spacing: 0.24em;
+  color: #78c8e6;
+}
+
+.boot__dim {
+  color: #3a7090;
+}
+
+/* ── Check log ─────────────────────────────────────────────────────────────*/
+
+.boot__log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: clamp(10px, 1.25vw, 15px);
+  line-height: 1.85;
+  /* Scrollbar hidden: this is a kiosk, nobody is dragging it. */
+  scrollbar-width: none;
+}
+.boot__log::-webkit-scrollbar { display: none; }
+
+.boot__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+  /* Each line arrives as its check finishes, so this animates once per row. */
+  animation: boot-line-in 220ms ease-out both;
+}
+
+.boot__bracket {
+  color: #3a7090;
+}
+
+.boot__label {
+  color: #b0e0f0;
+  letter-spacing: 0.14em;
+  flex-shrink: 0;
+}
+
+/* Leader dots, so the eye can track from label to result. */
+.boot__dots {
+  flex: 1;
+  min-width: 12px;
+  border-bottom: 1px dotted rgba(58, 112, 144, 0.5);
+  transform: translateY(-4px);
+}
+
+.boot__detail {
+  color: #5f93ad;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 46%;
+  flex-shrink: 1;
+}
+
+.boot__ms {
+  color: #2e5c78;
+  font-size: 0.85em;
+  flex-shrink: 0;
+  min-width: 52px;
+  text-align: right;
+}
+
+.boot__line--active .boot__label {
+  color: #78c8e6;
+}
+
+.boot__spinner {
+  color: #78c8e6;
+  animation: boot-blink 1s steps(1) infinite;
+}
+
+/* ── Summary ───────────────────────────────────────────────────────────────*/
+
+.boot__foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  border-top: 1px solid rgba(58, 112, 144, 0.35);
+  padding-top: 10px;
+  font-size: clamp(9px, 1.15vw, 13px);
+  letter-spacing: 0.16em;
+}
+
+.boot__verdict {
+  text-shadow: 0 0 14px currentColor;
+}
+
+.boot__counts {
+  color: #3a7090;
+}
+
+/* ── Keyframes — transform/opacity only ────────────────────────────────────*/
+
+@keyframes boot-scan {
+  from { transform: translateY(0); }
+  to   { transform: translateY(3px); }
+}
+
+@keyframes boot-line-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes boot-blink {
+  0%, 50%   { opacity: 1; }
+  51%, 100% { opacity: 0.15; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot__scan,
+  .boot__line,
+  .boot__spinner {
+    animation: none;
+  }
+}
