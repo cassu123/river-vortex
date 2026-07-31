@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from core.config import config
+from core.constants import RIVER_SONG_WEATHER_ENDPOINT
 from core.constants import (
     AMBIENT_CLOCK_UPDATE_INTERVAL,
     AMBIENT_WEATHER_UPDATE_INTERVAL,
@@ -87,6 +88,17 @@ class AmbientMode:
             "notifications": self._notifications,
         }
 
+    async def broadcast_state(self) -> None:
+        """
+        Push the current ambient state to every connected display.
+
+        The frontend has always handled an `ambient_update` message, but
+        nothing ever sent one -- so the clock, date and weather it holds never
+        reached the screen.
+        """
+        from core.ws_hub import ws_hub
+        await ws_hub.broadcast({"type": "ambient_update", "data": self.get_state()})
+
     def add_notification(self, notification: Dict[str, Any]) -> None:
         """
         Add a notification to the ambient overlay.
@@ -119,8 +131,20 @@ class AmbientMode:
         """Update the current time string every second."""
         while self._running:
             now = datetime.now()
-            self._current_time = now.strftime("%I:%M %p").lstrip("0")
+            time_str = now.strftime("%I:%M %p").lstrip("0")
+            changed = time_str != self._current_time
+            self._current_time = time_str
             self._current_date = now.strftime("%A, %B %-d")
+
+            # Only broadcast when the displayed minute actually changes --
+            # this loop ticks every second and the panel does not need 60
+            # identical messages a minute.
+            if changed:
+                try:
+                    await self.broadcast_state()
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.debug("Ambient broadcast failed: %s", exc)
+
             await asyncio.sleep(AMBIENT_CLOCK_UPDATE_INTERVAL)
 
     async def _weather_loop(self) -> None:
@@ -152,12 +176,25 @@ class AmbientMode:
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    f"{base_url}/api/vortex/v1/weather",
+                    f"{base_url}{RIVER_SONG_WEATHER_ENDPOINT}",
                     headers=headers,
                 )
                 if response.status_code == 200:
                     self._weather_data = response.json()
-                    logger.debug("Weather updated: %s", self._weather_data.get("condition", ""))
+                    logger.debug("Weather updated: %s",
+                                 self._weather_data.get("condition", ""))
+                    await self.broadcast_state()
+                elif response.status_code in (401, 403):
+                    # River Song's feeds API authenticates a USER, not a unit.
+                    # Until the Vortex channel exposes weather against the unit
+                    # token this will keep failing -- say so once, clearly,
+                    # rather than logging a bare status code every 10 minutes.
+                    logger.warning(
+                        "Weather rejected (%d): %s authenticates a user, not a "
+                        "unit token. Weather stays unavailable until River Song "
+                        "exposes it on the Vortex channel.",
+                        response.status_code, RIVER_SONG_WEATHER_ENDPOINT,
+                    )
                 else:
                     logger.warning("Weather API returned %d.", response.status_code)
         except Exception as exc:

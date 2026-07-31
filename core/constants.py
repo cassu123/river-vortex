@@ -43,6 +43,11 @@ RIVER_SONG_LISTS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/li
 RIVER_SONG_REMINDERS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/reminders"
 RIVER_SONG_PHOTOS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/photos"
 
+# Weather lives on River Song's feeds API, NOT under /api/vortex. Note it
+# authenticates a user rather than a unit token, so a Vortex unit cannot call
+# it yet -- see docs/RIVERSONG_PROMPT.md.
+RIVER_SONG_WEATHER_ENDPOINT: str = "/api/feeds/weather"
+
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5
 API_READ_TIMEOUT: int = 30

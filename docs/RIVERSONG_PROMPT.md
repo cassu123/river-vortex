@@ -64,6 +64,22 @@ Server to unit:
 - `navigate` — `{page}`
 - `replica` — state deltas (see Task 2)
 
+### Task 1b — weather for units
+
+`/api/feeds/weather` (`api/routes/feeds.py:152`) already returns weather, but
+it authenticates a USER via `_require_user(authorization)`. A Vortex unit
+holds a unit token, not a user JWT, so it cannot call it — the ambient screen
+currently has no weather at all.
+
+Expose the same data to units: either accept a unit token on the feeds
+weather route and resolve it to the household's user, or include a `weather`
+block in the replica payload below and push updates over `/api/vortex/ws`.
+The replica route is cleaner — units already need it, and it means weather
+survives the server being briefly unreachable.
+
+Include `weather/alerts` too; a wall panel is the right place for a severe
+weather warning.
+
 ### Task 2 — replica snapshot and deltas
 
 Units render from a local copy so the UI never blocks on the network and

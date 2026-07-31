@@ -266,6 +266,7 @@ class RiverVortex:
         self._announcement_session = None
         self._lists_store = None
         self._photo_library = None
+        self._ambient_mode = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -538,6 +539,17 @@ class RiverVortex:
         except Exception as exc:
             logger.error("Lists & reminders cache failed to initialize: %s", exc)
 
+        # ── Ambient data (clock, date, weather) ───────────────────────────────
+        # AmbientMode was never instantiated anywhere, so its clock and weather
+        # loops never ran and the ambient screen had no data source at all.
+        try:
+            from display.ambient_mode import AmbientMode
+            self._ambient_mode = AmbientMode()
+            await self._ambient_mode.start()
+            logger.info("[OK] Ambient data loops started.")
+        except Exception as exc:
+            logger.error("Ambient mode failed to start: %s", exc)
+
         # ── Ambient photos ────────────────────────────────────────────────────
         # Local-first: photos live on this unit, so the ambient screen keeps
         # its backdrop when River Song is down or WiFi has dropped. An absent
@@ -705,6 +717,7 @@ class RiverVortex:
             ("Timers",        self._timer_manager),
             ("Intercom",      self._intercom_manager),
             ("Audio",         self._audio_manager),
+            ("Ambient",       self._ambient_mode),
             ("Screen",        self._screen_manager),
             ("HA Client",     self._ha_client),
             ("Connectivity",  self._connectivity_manager),
