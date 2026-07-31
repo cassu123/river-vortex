@@ -105,7 +105,7 @@ export default function Dashboard() {
 
       {/* Device grid — lights and switches on dashboard */}
       <div style={styles.content}>
-        <DeviceGrid domains={['light', 'switch', 'climate', 'lock']} />
+        <DeviceGrid domains={['light', 'switch', 'climate', 'lock']} flat />
       </div>
 
       {/* Bottom navigation */}

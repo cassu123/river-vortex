@@ -21,6 +21,7 @@ import Cameras from './pages/Cameras';
 import Routine from './pages/Routine';
 import Lists from './pages/Lists';
 import Setup from './pages/Setup';
+import Screensaver from './pages/Screensaver';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import IntercomBanner from './components/IntercomBanner';
 import ReminderBanner from './components/ReminderBanner';
@@ -260,6 +261,11 @@ function PageRouter({ page }) {
     case 'dashboard': return <Dashboard />;
     case 'devices':   return <Devices />;
     case 'cameras':   return <Cameras />;
+    // Burn-in protection stages, driven by display/screen_manager.py.
+    case 'screensaver': return <Screensaver />;
+    // Backlight is off; render pure black so waking does not flash the
+    // previous screen before the next one paints.
+    case 'off':       return <div style={styles.screenOff} />;
     case 'routine':   return <Routine />;
     case 'lists':     return <Lists />;
     case 'ambient':
@@ -347,6 +353,12 @@ export default function App() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = {
+  screenOff: {
+    width: '100%',
+    height: '100%',
+    background: '#000',
+    cursor: 'none',
+  },
   root: {
     width: '100vw',
     height: '100vh',

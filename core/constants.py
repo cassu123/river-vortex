@@ -135,6 +135,20 @@ SCREEN_BRIGHTNESS_MIN: int = 10
 SCREEN_BRIGHTNESS_MAX: int = 100
 
 AMBIENT_MODE_TIMEOUT_SECONDS: int = 300    # 5 min idle → ambient mode
+
+# ── Burn-in protection ───────────────────────────────────────────────────────
+# A wall panel shows the same layout for 16 hours a day, which is exactly how
+# you burn a permanent ghost of the clock into a display. Idle proceeds in
+# stages, each one dimmer and less static than the last:
+#
+#   active → ambient (dimmed) → screensaver (drifting, very dim) → backlight off
+#
+# Timeouts are measured from the LAST activity, not from the previous stage,
+# so screensaver must be greater than ambient, and off greater than screensaver.
+SCREENSAVER_TIMEOUT_SECONDS: int = 1800     # 30 min idle → drifting screensaver
+SCREEN_OFF_TIMEOUT_SECONDS: int = 5400      # 90 min idle → backlight off
+SCREEN_BRIGHTNESS_SCREENSAVER: int = 12     # Barely visible, still readable in the dark
+SCREENSAVER_DRIFT_INTERVAL_SECONDS: int = 45  # How often the clock repositions
 AMBIENT_CLOCK_UPDATE_INTERVAL: int = 1     # Seconds between clock refreshes
 AMBIENT_WEATHER_UPDATE_INTERVAL: int = 600 # 10 min between weather refreshes
 NOTIFICATION_DISPLAY_DURATION: int = 8     # Seconds a notification stays visible

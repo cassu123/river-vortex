@@ -29,6 +29,8 @@ from core.constants import (
     DEFAULT_WAKE_WORD,
     WAKE_WORD_SENSITIVITY,
     AMBIENT_MODE_TIMEOUT_SECONDS,
+    SCREENSAVER_TIMEOUT_SECONDS,
+    SCREEN_OFF_TIMEOUT_SECONDS,
     SCREEN_BRIGHTNESS_DEFAULT,
     HA_RECONNECT_INTERVAL_SECONDS,
     INTERCOM_PORT,
@@ -259,6 +261,10 @@ class Config:
             "screen_brightness": SCREEN_BRIGHTNESS_DEFAULT,
             "ambient_mode_enabled": True,
             "ambient_timeout": AMBIENT_MODE_TIMEOUT_SECONDS,
+            # Burn-in staircase. Each is measured from the last activity, so
+            # they must increase: ambient < screensaver < off.
+            "screensaver_timeout": SCREENSAVER_TIMEOUT_SECONDS,
+            "screen_off_timeout": SCREEN_OFF_TIMEOUT_SECONDS,
             "theme": "dark-river",
 
             # Physical shape of this unit: "hub_max" (10"), "hub" (7") or
