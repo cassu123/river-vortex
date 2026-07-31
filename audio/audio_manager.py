@@ -52,6 +52,10 @@ class AudioManager:
         self._wake_word_detector: Optional[WakeWordDetector] = None
         self._running: bool = False
         self._state: VortexState = VortexState.IDLE
+        # Captured in start(). The wake word callback fires on the detector
+        # thread, which has no event loop of its own — it needs an explicit
+        # reference to the main loop to schedule work onto.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def start(self) -> None:
         """
@@ -62,6 +66,10 @@ class AudioManager:
         """
         logger.info("Starting AudioManager...")
         self._running = True
+
+        # start() runs on the main event loop; capture it now so the wake word
+        # detector thread can schedule the command flow back onto it.
+        self._loop = asyncio.get_running_loop()
 
         try:
             self._microphone.open()
@@ -150,13 +158,19 @@ class AudioManager:
         logger.info("Wake word detected — initiating command capture.")
         self._speaker.play_chime("wake")
 
-        # Schedule the async command flow on the running event loop
+        # Schedule the async command flow onto the main event loop.
+        #
+        # This must use the loop captured in start(), NOT asyncio.get_event_loop().
+        # This callback runs on the wake word detector thread, and since Python
+        # 3.10 get_event_loop() raises RuntimeError in a thread that has no loop
+        # of its own — which silently killed the entire voice path.
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            logger.error("AudioManager has no event loop — cannot capture command.")
+            return
+
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.run_coroutine_threadsafe(self._capture_and_process_command(), loop)
-            else:
-                logger.warning("No running event loop — cannot schedule command capture.")
+            asyncio.run_coroutine_threadsafe(self._capture_and_process_command(), loop)
         except RuntimeError as exc:
             logger.error("Failed to schedule command capture: %s", exc)
 
@@ -179,10 +193,16 @@ class AudioManager:
         self._state = VortexState.LISTENING
         logger.info("Capturing voice command...")
 
-        audio_chunks = []
+        # stream_until_silence() is a BLOCKING generator over PyAudio reads —
+        # it can run for up to MAX_COMMAND_DURATION_SECONDS. Running it inline
+        # would stall the event loop for that whole time, freezing the UI
+        # WebSocket, the watchdog, and the HA connection. Collect it on a
+        # worker thread instead.
+        def _collect() -> list:
+            return list(self._microphone.stream_until_silence())
+
         try:
-            for chunk in self._microphone.stream_until_silence():
-                audio_chunks.append(chunk)
+            audio_chunks = await asyncio.to_thread(_collect)
         except MicrophoneError as exc:
             logger.error("Microphone error during command capture: %s", exc)
             self._speaker.play_chime("error")

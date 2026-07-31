@@ -173,9 +173,11 @@ def create_app(
             "status": "ok",
         }
 
-    # Mount React frontend build if it exists. Registered last — it's a
-    # catch-all at "/" and would otherwise shadow any API route defined
-    # after it.
+    # ── Frontend static mount ─────────────────────────────────────────────────
+    # MUST be registered LAST. Starlette matches routes in registration order,
+    # and a Mount at "/" matches every path — mounting it before the API routes
+    # makes it swallow them, so /api/health would 404 in production while
+    # working fine in dev (where dist/ does not exist). Keep this at the bottom.
     frontend_path = Path(FRONTEND_BUILD_DIR)
     if frontend_path.exists() and frontend_path.is_dir():
         app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")

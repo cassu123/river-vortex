@@ -206,7 +206,7 @@ class Config:
         Returns:
             A sanitized copy of the settings dict.
         """
-        sensitive_keys = {"ha_token", "river_song_api_key", "cellular_pin"}
+        sensitive_keys = {"ha_token", "river_song_api_key", "unit_token"}
         return {
             k: ("***REDACTED***" if k in sensitive_keys else v)
             for k, v in self._settings.items()
@@ -265,10 +265,6 @@ class Config:
             "intercom_enabled": True,
             "intercom_port": INTERCOM_PORT,
 
-            # Connectivity
-            "cellular_enabled": False,
-            "cellular_apn": "",
-
             # Backend server
             "backend_host": BACKEND_HOST,
             "backend_port": BACKEND_PORT,
@@ -313,20 +309,33 @@ class Config:
             )
             return
 
-        # Flatten nested profile sections into the flat settings dict
+        # Top-level scalar keys (unit_id, unit_name, location, theme, ...)
         self._settings.update({
             k: v for k, v in profile_data.items()
-            if not isinstance(v, dict)
+            if not isinstance(v, dict) and not k.startswith("_")
         })
 
-        # Merge known nested sections explicitly
+        # Flatten grouped sections.
+        #
+        # The profile groups settings under "audio", "display", "intercom",
+        # "privacy", "network", "backend" and "logging" purely for human
+        # readability — the keys inside them are already unique and match the
+        # flat names used everywhere else, so they merge straight in.
+        # Previously these sections were dropped entirely, which meant every
+        # value in the shipped profile silently had no effect.
+        for section in ("audio", "display", "intercom", "privacy",
+                        "network", "backend", "logging"):
+            values = profile_data.get(section)
+            if isinstance(values, dict):
+                self._settings.update(values)
+
+        # Sections that need renaming rather than a straight merge.
         capabilities: Dict[str, Any] = profile_data.get("capabilities", {})
         self._settings.update({
             "cap_audio": capabilities.get("audio", True),
             "cap_display": capabilities.get("display", True),
             "cap_intercom": capabilities.get("intercom", True),
             "cap_home_assistant": capabilities.get("home_assistant", True),
-            "cap_cellular": capabilities.get("cellular", False),
         })
 
         hardware: Dict[str, Any] = profile_data.get("hardware", {})
@@ -334,7 +343,12 @@ class Config:
             "hw_screen": hardware.get("screen", "unknown"),
             "hw_mic_array": hardware.get("mic_array", "unknown"),
             "hw_speakers": hardware.get("speakers", "unknown"),
+            "hw_platform": hardware.get("platform", "unknown"),
         })
+        # Screen dimensions live under hardware but are used flat.
+        for key in ("screen_width", "screen_height"):
+            if key in hardware:
+                self._settings[key] = hardware[key]
 
         logger.debug(
             "Profile loaded: unit_id=%s, unit_name=%s",
@@ -364,13 +378,11 @@ class Config:
             "VORTEX_LOG_LEVEL":     "log_level",
             "VORTEX_LOG_DIR":       "log_dir",
             "VORTEX_BACKEND_PORT":  "backend_port",
-            "CELLULAR_APN":         "cellular_apn",
         }
 
         bool_env_map: Dict[str, str] = {
             "VORTEX_AMBIENT_MODE":      "ambient_mode_enabled",
             "VORTEX_INTERCOM_ENABLED":  "intercom_enabled",
-            "VORTEX_CELLULAR_ENABLED":  "cellular_enabled",
             "VORTEX_MIC_ENABLED":       "mic_enabled",
         }
 
