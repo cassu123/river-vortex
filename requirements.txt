@@ -38,6 +38,13 @@ numpy==1.26.4
 # mDNS advertisement so the River Song app can find this unit during setup
 zeroconf==0.135.0
 
+# ── Media playback ────────────────────────────────────────────────────────────
+# Streaming music/radio is played by mpv as a child process, controlled over
+# its JSON IPC socket. It is a system package, not a pip one:
+#   sudo apt install mpv
+# Offline speech fallback (used when River Song is unreachable) likewise:
+#   sudo apt install espeak-ng
+
 # ── System telemetry ──────────────────────────────────────────────────────────
 # CPU, memory, disk, and temperature metrics
 psutil==5.9.8

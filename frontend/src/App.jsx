@@ -22,6 +22,7 @@ import Routine from './pages/Routine';
 import Lists from './pages/Lists';
 import Setup from './pages/Setup';
 import Screensaver from './pages/Screensaver';
+import NowPlaying from './pages/NowPlaying';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import IntercomBanner from './components/IntercomBanner';
 import ReminderBanner from './components/ReminderBanner';
@@ -63,6 +64,8 @@ const initialState = {
   lists: [],
   /** Upcoming reminders snapshot (see core/lists.py) */
   reminders: [],
+  /** Media transport state (see audio/media_player.py) */
+  media: { state: 'idle', now_playing: {} },
   /**
    * River's presence — {state, amplitude, mood, caption}. Drives the orb
    * today and the Rive / holographic avatar later. See presenceContract.js.
@@ -118,6 +121,8 @@ function appReducer(state, action) {
       return { ...state, lists: action.payload };
     case 'SET_REMINDERS':
       return { ...state, reminders: action.payload };
+    case 'SET_MEDIA':
+      return { ...state, media: action.payload };
     default:
       return state;
   }
@@ -203,6 +208,9 @@ function handleMessage(msg, dispatch, amplitudeRef) {
       dispatch({ type: 'SET_PRESENCE', payload: presence });
       break;
     }
+    case 'media_update':
+      dispatch({ type: 'SET_MEDIA', payload: msg.media });
+      break;
     case 'ambient_update':
       dispatch({ type: 'UPDATE_AMBIENT', payload: msg.data });
       break;
@@ -262,6 +270,7 @@ function PageRouter({ page }) {
     case 'devices':   return <Devices />;
     case 'cameras':   return <Cameras />;
     // Burn-in protection stages, driven by display/screen_manager.py.
+    case 'nowplaying': return <NowPlaying />;
     case 'screensaver': return <Screensaver />;
     // Backlight is off; render pure black so waking does not flash the
     // previous screen before the next one paints.

@@ -27,8 +27,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from core import (announce_api, intercom_api, lists_api, photos_api,
-                  routines_api, setup_api, timers_api)
+from core import (announce_api, intercom_api, lists_api, media_api,
+                  photos_api, routines_api, setup_api, timers_api)
 from core.announce import AnnouncementSession
 from core.config import Config, ConfigError, config
 from core.constants import (
@@ -43,6 +43,7 @@ from core.constants import (
     VERSION,
     VortexState,
 )
+from audio.media_player import MediaPlayer
 from core.lists import ListsStore
 from display.photo_library import PhotoLibrary
 from core.routines import RoutineSession
@@ -70,6 +71,7 @@ def create_app(
     intercom_manager: Optional[Any] = None,
     lists_store: Optional[ListsStore] = None,
     photo_library: Optional["PhotoLibrary"] = None,
+    media_player: Optional[MediaPlayer] = None,
 ) -> FastAPI:
     """
     Build and configure the FastAPI application instance.
@@ -171,6 +173,12 @@ def create_app(
     photos_api.set_photo_library(photo_library)
     app.include_router(photos_api.router)
 
+    # Streaming media — River Song resolves a spoken request into a stream URL
+    # and posts it here; the touchscreen drives the same endpoints, so voice
+    # and touch control one player (see core/media_api.py).
+    media_api.set_media_player(media_player)
+    app.include_router(media_api.router)
+
     # Real-time event stream to the frontend (display mode changes, timer
     # updates, guided routine steps, etc.) — see core/ws_hub.py.
     @app.websocket("/api/ws")
@@ -267,6 +275,7 @@ class RiverVortex:
         self._lists_store = None
         self._photo_library = None
         self._ambient_mode = None
+        self._media_player = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -504,6 +513,23 @@ class RiverVortex:
         else:
             logger.info("[SKIP] Intercom subsystem disabled.")
 
+        # ── Media playback ────────────────────────────────────────────────────
+        # Separate from the Speaker: music is long-running and needs transport
+        # controls and ducking, where the Speaker plays short blocking WAVs.
+        if config.get("cap_audio", True):
+            try:
+                self._media_player = MediaPlayer(on_change=self._broadcast_media_state)
+                await self._media_player.start()
+                if self._media_player.available:
+                    logger.info("[OK] Media player started.")
+                else:
+                    logger.warning(
+                        "Media player unavailable — install mpv to enable "
+                        "music playback: sudo apt install mpv"
+                    )
+            except Exception as exc:
+                logger.error("Media player failed to start: %s", exc)
+
         # ── Timers, Guided Routines & Announcements ─────────────────────────
         # Stateful helpers driven by River Song's voice intent handlers via
         # /api/vortex/v1/timers, /api/vortex/v1/routine, and
@@ -522,6 +548,7 @@ class RiverVortex:
             self._announcement_session = AnnouncementSession(
                 device_control=self._device_control,
                 audio_manager=self._audio_manager,
+                media_player=self._media_player,
             )
             logger.info("[OK] Timers, guided routines, and announcements ready.")
         except Exception as exc:
@@ -642,6 +669,7 @@ class RiverVortex:
             intercom_manager=self._intercom_manager,
             lists_store=self._lists_store,
             photo_library=self._photo_library,
+            media_player=self._media_player,
         )
 
         host = config.get("backend_host", BACKEND_HOST)
@@ -690,6 +718,16 @@ class RiverVortex:
     # Shutdown
     # ─────────────────────────────────────────────────────────────────────────
 
+    async def _broadcast_media_state(self, state: Dict[str, Any]) -> None:
+        """
+        Push transport state to every connected display.
+
+        Wired into MediaPlayer as its on_change hook so the now-playing screen
+        follows whatever changed it — a screen tap, a voice command, or a
+        track ending.
+        """
+        await ws_hub.broadcast({"type": "media_update", "media": state})
+
     def _handle_shutdown_signal(self) -> None:
         """
         Signal handler for SIGINT and SIGTERM.
@@ -717,6 +755,7 @@ class RiverVortex:
             ("Timers",        self._timer_manager),
             ("Intercom",      self._intercom_manager),
             ("Audio",         self._audio_manager),
+            ("Media",         self._media_player),
             ("Ambient",       self._ambient_mode),
             ("Screen",        self._screen_manager),
             ("HA Client",     self._ha_client),

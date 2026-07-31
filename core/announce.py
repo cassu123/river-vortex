@@ -54,6 +54,7 @@ class AnnouncementSession:
         self,
         device_control: Optional[Any] = None,
         audio_manager: Optional[Any] = None,
+        media_player: Optional[Any] = None,
     ) -> None:
         """
         Initialize AnnouncementSession.
@@ -65,9 +66,14 @@ class AnnouncementSession:
             audio_manager:  Optional audio.audio_manager.AudioManager used to
                              play a chime when an announcement arrives. If None,
                              no chime is played.
+            media_player:   Optional audio.media_player.MediaPlayer. Music
+                             playing locally is ducked for the announcement
+                             and restored after; without this it would talk
+                             straight over the top.
         """
         self._device_control = device_control
         self._audio_manager = audio_manager
+        self._media_player = media_player
         self._ducked_players: Dict[str, float] = {}
         self._restore_task: Optional[asyncio.Task] = None
 
@@ -101,6 +107,15 @@ class AnnouncementSession:
             self._restore_task.cancel()
         if not self._ducked_players:
             await self._duck_media()
+
+        # Duck this unit's own player as well. _duck_media only lowers Home
+        # Assistant media_players; music playing locally through mpv would
+        # otherwise talk straight over the announcement.
+        if self._media_player is not None:
+            try:
+                await self._media_player.duck()
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.debug("Local media duck failed: %s", exc)
 
         announcement = {
             "id": str(uuid.uuid4()),
@@ -139,6 +154,8 @@ class AnnouncementSession:
         try:
             await asyncio.sleep(delay)
             await self._restore_media()
+            if self._media_player is not None:
+                await self._media_player.unduck()
         except asyncio.CancelledError:
             pass
 

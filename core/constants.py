@@ -47,6 +47,7 @@ RIVER_SONG_PHOTOS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/p
 # authenticates a user rather than a unit token, so a Vortex unit cannot call
 # it yet -- see docs/RIVERSONG_PROMPT.md.
 RIVER_SONG_WEATHER_ENDPOINT: str = "/api/feeds/weather"
+RIVER_SONG_MEDIA_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/media"
 
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5
@@ -121,6 +122,13 @@ DEFAULT_VOLUME: int = 70                    # Percent (0–100)
 MIN_VOLUME: int = 0
 MAX_VOLUME: int = 100
 TTS_CACHE_DIR: str = "/tmp/vortex_tts_cache"
+
+# ── Media playback ───────────────────────────────────────────────────────────
+# Streaming music/radio, played by mpv as a child process. Separate from the
+# Speaker, which handles short WAV chimes and TTS.
+MEDIA_DUCK_VOLUME_LEVEL: float = 0.25      # Fraction of volume while River speaks
+MEDIA_STARTUP_TIMEOUT_SECONDS: float = 5.0 # Wait for mpv's IPC socket
+MEDIA_IPC_TIMEOUT_SECONDS: float = 2.0     # Per-command socket timeout
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Display

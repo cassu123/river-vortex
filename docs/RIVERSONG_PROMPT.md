@@ -115,6 +115,42 @@ Each step should carry: index, total, instruction text, the ingredients for
 Voice intents to route while a session is active: next, back, repeat, "how
 much <ingredient>", "set a timer for N", "how long left".
 
+### Task 3b — music must play on the unit, not on the server
+
+`providers/google/youtube_music.py` currently plays audio **on the River Song
+box itself** — it has an `audio_output_device` and a `_download_and_play`, and
+`_handle_youtube_music` (`core/intent_router.py:424`) calls
+`play_first_result()`. So asking for music in the kitchen plays it out of
+whatever the server is plugged into. It is a working player wired to the wrong
+speaker.
+
+Split resolve from playback:
+
+- Add a resolve-only path that returns `{url, title, artist, album,
+  artwork_url, duration_seconds}` plus an optional queue, without playing
+  anything locally. The URL must be a direct stream URL the unit can fetch.
+- When a play intent arrives from a Vortex unit, POST that payload to the
+  unit's own `POST /api/vortex/v1/media/play` (already implemented on the
+  device), or push it over `/api/vortex/ws`. Keep local playback only for
+  requests that did not come from a unit.
+- Route transport intents — pause, resume, skip, previous, stop, "louder" —
+  to the same unit's `/api/vortex/v1/media/*` endpoints.
+- "Play it in the living room" targets a different unit: resolve the room to a
+  unit_id and send it there instead of the one that heard the request.
+
+The device side is done and needs nothing from you beyond being handed a URL:
+transport, queue, volume and ducking all work, and the unit ducks its own
+music automatically while River speaks or an announcement plays.
+
+### Task 3c — casting
+
+`core/fleet_simulator.py:190` already accepts `cast` and `stop_cast` for
+vortex units and tracks a `cast_target`, but neither side implements them.
+Decide what casting means here — most likely handing the stream to a Home
+Assistant `media_player` entity via the existing `/api/home` layer rather than
+anything on the Pi — and then define the command payload. Vortex will need a
+matching handler; it has none today.
+
 ### Task 4 — pairing
 
 Fresh units have no token. `POST /api/vortex/units/claim` exists but is
