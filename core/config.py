@@ -29,6 +29,8 @@ from core.constants import (
     DEFAULT_WAKE_WORD,
     WAKE_WORD_SENSITIVITY,
     AMBIENT_MODE_TIMEOUT_SECONDS,
+    AMBIENT_PHOTO_DIR,
+    AMBIENT_PHOTO_INTERVAL_SECONDS,
     SCREENSAVER_TIMEOUT_SECONDS,
     SCREEN_OFF_TIMEOUT_SECONDS,
     SCREEN_BRIGHTNESS_DEFAULT,
@@ -267,6 +269,12 @@ class Config:
             "screen_off_timeout": SCREEN_OFF_TIMEOUT_SECONDS,
             "theme": "dark-river",
 
+            # Ambient photo backdrop
+            "photos_dir": AMBIENT_PHOTO_DIR,
+            "photo_interval_seconds": AMBIENT_PHOTO_INTERVAL_SECONDS,
+            "ambient_photos_enabled": True,
+            "photo_shuffle": True,
+
             # Physical shape of this unit: "hub_max" (10"), "hub" (7") or
             # "mini" (no screen at all). Drives which output surfaces the
             # presenter uses, and which layout the frontend picks.
@@ -380,6 +388,7 @@ class Config:
             "VORTEX_UNIT_NAME":     "unit_name",
             "VORTEX_LOCATION":      "location",
             "VORTEX_FORM_FACTOR":   "form_factor",
+            "VORTEX_PHOTOS_DIR":    "photos_dir",
             "RIVER_SONG_API_URL":   "river_song_api_url",
             "RIVER_SONG_API_KEY":   "river_song_api_key",
             "HA_URL":               "ha_url",

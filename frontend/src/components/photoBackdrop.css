@@ -1,0 +1,74 @@
+/*
+ * ============================================================================
+ * Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+ * File:     frontend/src/components/photoBackdrop.css
+ * Purpose:  Styles for the ambient photo layer.
+ *
+ *           PERFORMANCE CONTRACT — same as the orb: this runs all day on a
+ *           Pi 4, so only opacity and transform are animated. No blur, no
+ *           background-position, no filter transitions.
+ * ============================================================================
+ */
+
+.photo-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* Sits behind the clock/weather, above the page background. */
+  z-index: 0;
+  background: #000;
+}
+
+.photo-backdrop__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  /* Long crossfade so the change reads as a drift, not a cut. */
+  transition: opacity 2500ms ease-in-out;
+  /* Slow Ken Burns pan. Doubles as burn-in protection: even while a single
+     photo is held, the pixels under the clock keep changing. */
+  animation: photo-pan 60s ease-in-out infinite alternate;
+  will-change: opacity, transform;
+}
+
+.photo-backdrop__img.is-front {
+  opacity: 1;
+}
+
+/* Scrim — a vertical gradient rather than a flat wash, so the photo stays
+   visible through the middle while the text areas top and bottom stay dark
+   enough to read against. */
+.photo-backdrop__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(6, 6, 12, 0.72) 0%,
+      rgba(6, 6, 12, 0.34) 32%,
+      rgba(6, 6, 12, 0.38) 62%,
+      rgba(6, 6, 12, 0.82) 100%
+    );
+  pointer-events: none;
+}
+
+.photo-backdrop__scrim.is-dimmed {
+  background: rgba(6, 6, 12, 0.78);
+}
+
+@keyframes photo-pan {
+  from { transform: scale(1.06) translate(-1.2%, -0.8%); }
+  to   { transform: scale(1.12) translate(1.2%, 0.8%); }
+}
+
+/* Honour the OS reduced-motion setting: hold the frame still and let the
+   crossfade alone carry the change. */
+@media (prefers-reduced-motion: reduce) {
+  .photo-backdrop__img {
+    animation: none;
+    transform: scale(1.02);
+  }
+}

@@ -27,10 +27,12 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from core import announce_api, intercom_api, lists_api, routines_api, setup_api, timers_api
+from core import (announce_api, intercom_api, lists_api, photos_api,
+                  routines_api, setup_api, timers_api)
 from core.announce import AnnouncementSession
 from core.config import Config, ConfigError, config
 from core.constants import (
+    AMBIENT_PHOTO_DIR,
     BACKEND_HOST,
     BACKEND_PORT,
     CORS_ALLOWED_ORIGINS,
@@ -42,6 +44,7 @@ from core.constants import (
     VortexState,
 )
 from core.lists import ListsStore
+from display.photo_library import PhotoLibrary
 from core.routines import RoutineSession
 from core.timers import TimerManager
 from core.ws_hub import ws_hub
@@ -66,6 +69,7 @@ def create_app(
     announcement_session: Optional[AnnouncementSession] = None,
     intercom_manager: Optional[Any] = None,
     lists_store: Optional[ListsStore] = None,
+    photo_library: Optional["PhotoLibrary"] = None,
 ) -> FastAPI:
     """
     Build and configure the FastAPI application instance.
@@ -97,6 +101,15 @@ def create_app(
     Returns:
         A fully configured FastAPI application.
     """
+    # The orchestrator loads config before building the app, but create_app is
+    # also a documented entry point on its own
+    # (uvicorn --factory core.main:create_app). Without this, that path builds
+    # every subsystem against an empty settings dict and silently falls back to
+    # built-in defaults -- which looked exactly like "the photo directory is
+    # empty" rather than "config was never read".
+    if not config.is_loaded():
+        config.load(profile_path=PROFILE_PATH)
+
     app = FastAPI(
         title=SYSTEM_NAME,
         version=VERSION,
@@ -143,6 +156,20 @@ def create_app(
     lists_api.set_lists_store(lists_store)
     app.include_router(lists_api.router)
     app.include_router(lists_api.reminders_router)
+
+    # Ambient photo backdrop — the kiosk pulls the playlist and the image
+    # files from here (see core/photos_api.py, display/photo_library.py).
+    #
+    # Build one from config when the caller did not supply it, so running the
+    # app directly (uvicorn --factory core.main:create_app) still serves
+    # photos rather than 503-ing. The orchestrator passes its own instance.
+    if photo_library is None and config.get("ambient_photos_enabled", True):
+        photo_library = PhotoLibrary(
+            directory=config.get("photos_dir", AMBIENT_PHOTO_DIR),
+            shuffle=bool(config.get("photo_shuffle", True)),
+        )
+    photos_api.set_photo_library(photo_library)
+    app.include_router(photos_api.router)
 
     # Real-time event stream to the frontend (display mode changes, timer
     # updates, guided routine steps, etc.) — see core/ws_hub.py.
@@ -238,6 +265,7 @@ class RiverVortex:
         self._routine_session = None
         self._announcement_session = None
         self._lists_store = None
+        self._photo_library = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -510,6 +538,23 @@ class RiverVortex:
         except Exception as exc:
             logger.error("Lists & reminders cache failed to initialize: %s", exc)
 
+        # ── Ambient photos ────────────────────────────────────────────────────
+        # Local-first: photos live on this unit, so the ambient screen keeps
+        # its backdrop when River Song is down or WiFi has dropped. An absent
+        # or empty directory is fine — the screen falls back to the gradient.
+        if config.get("ambient_photos_enabled", True):
+            try:
+                self._photo_library = PhotoLibrary(
+                    directory=config.get("photos_dir"),
+                    shuffle=bool(config.get("photo_shuffle", True)),
+                )
+                count = self._photo_library.rescan()
+                logger.info("[OK] Ambient photo library ready (%d photo(s)).", count)
+            except Exception as exc:
+                logger.error("Photo library failed to initialize: %s", exc)
+        else:
+            logger.info("[SKIP] Ambient photos disabled.")
+
         # ── Watchdog ──────────────────────────────────────────────────────────
         try:
             from safety.watchdog import Watchdog
@@ -584,6 +629,7 @@ class RiverVortex:
             announcement_session=self._announcement_session,
             intercom_manager=self._intercom_manager,
             lists_store=self._lists_store,
+            photo_library=self._photo_library,
         )
 
         host = config.get("backend_host", BACKEND_HOST)

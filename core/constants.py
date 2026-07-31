@@ -41,6 +41,7 @@ RIVER_SONG_ANNOUNCE_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}
 RIVER_SONG_INTERCOM_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/intercom"
 RIVER_SONG_LISTS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/lists"
 RIVER_SONG_REMINDERS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/reminders"
+RIVER_SONG_PHOTOS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/photos"
 
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5
@@ -149,6 +150,13 @@ SCREENSAVER_TIMEOUT_SECONDS: int = 1800     # 30 min idle → drifting screensav
 SCREEN_OFF_TIMEOUT_SECONDS: int = 5400      # 90 min idle → backlight off
 SCREEN_BRIGHTNESS_SCREENSAVER: int = 12     # Barely visible, still readable in the dark
 SCREENSAVER_DRIFT_INTERVAL_SECONDS: int = 45  # How often the clock repositions
+
+# ── Ambient photo backdrop ───────────────────────────────────────────────────
+# Photos live on the unit so the ambient screen still works with River Song
+# down. A changing backdrop is also the opposite of a static burned-in layout.
+AMBIENT_PHOTO_DIR: str = "/var/lib/river-vortex/photos"
+AMBIENT_PHOTO_INTERVAL_SECONDS: int = 90   # How long each photo is held
+AMBIENT_PHOTO_FADE_MS: int = 2500          # Crossfade duration between photos
 AMBIENT_CLOCK_UPDATE_INTERVAL: int = 1     # Seconds between clock refreshes
 AMBIENT_WEATHER_UPDATE_INTERVAL: int = 600 # 10 min between weather refreshes
 NOTIFICATION_DISPLAY_DURATION: int = 8     # Seconds a notification stays visible
