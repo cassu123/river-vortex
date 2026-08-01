@@ -253,7 +253,35 @@ CONNECTIVITY_TIMEOUT_SECONDS: int = 5
 # ─────────────────────────────────────────────────────────────────────────────
 
 PRIVACY_MIC_MUTE_GPIO_PIN: int = 17        # BCM pin for hardware mic mute LED
-PRIVACY_CAM_MUTE_GPIO_PIN: int = 27        # BCM pin for hardware cam mute LED
+
+# The camera LED means the OPPOSITE of the mic one, and the difference is
+# deliberate.
+#
+# A mic LED answers "am I safe to talk?", so it lights when MUTED. A camera LED
+# answers "is it looking at me right now?", so it lights when the camera is
+# ACTIVE. Getting this backwards on a bedroom wall panel means a dark LED while
+# the lens is live, which is the exact failure the indicator exists to prevent.
+#
+# It is also driven by the capture session rather than by a mute flag — see
+# safety/privacy_manager.py. Software cannot open the camera without lighting
+# it, because the same call does both.
+PRIVACY_CAM_ACTIVE_GPIO_PIN: int = 27      # BCM pin, HIGH while the camera is live
+
+# ── Camera ───────────────────────────────────────────────────────────────────
+# Only fitted on screened units, and only used for the purposes the owner has
+# explicitly enabled (see camera_purposes in units/vortex_profile.json).
+
+CAMERA_DEVICE_INDEX: int = 0               # /dev/video0 by default
+CAMERA_SNAPSHOT_WIDTH: int = 1280
+CAMERA_SNAPSHOT_HEIGHT: int = 720
+CAMERA_WARMUP_FRAMES: int = 3              # Discard: first frames are underexposed
+CAMERA_OPEN_TIMEOUT_SECONDS: float = 5.0
+
+#: Purposes a capture may be requested for. Each maps to its own consent flag;
+#: the capture layer refuses anything not listed here.
+CAMERA_PURPOSES: tuple = (
+    "video_calls", "motion_snapshots", "presence", "face_recognition",
+)
 WATCHDOG_HEARTBEAT_INTERVAL_SECONDS: int = 5
 WATCHDOG_RESTART_DELAY_SECONDS: int = 3
 WATCHDOG_MAX_RESTARTS: int = 5             # Per component per hour

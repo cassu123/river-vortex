@@ -6,7 +6,10 @@
     "audio": true,
     "display": true,
     "intercom": true,
-    "home_assistant": true
+    "home_assistant": true,
+    "camera": false,
+    "light_sensor": false,
+    "presence_sensor": false
   },
   "hardware": {
     "screen": "10-inch-touchscreen",
@@ -43,5 +46,11 @@
   "logging": {
     "log_level": "INFO",
     "log_dir": "/var/log/river-vortex"
+  },
+  "camera_purposes": {
+    "video_calls": false,
+    "motion_snapshots": false,
+    "presence": false,
+    "face_recognition": false
   }
 }
