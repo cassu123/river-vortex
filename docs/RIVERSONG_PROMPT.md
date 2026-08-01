@@ -168,6 +168,68 @@ Rate limit and lock out `pair/status` and `pair/approve`: 8 digits is only
 10^8 and is otherwise brute-forceable. Units poll, the app never connects
 inbound to the Pi.
 
+### Task 6 — surfaces: decide what the ambient screen shows
+
+Vortex now has a **surface renderer** and holds no opinion about what deserves
+the screen. It draws seven card shapes and orders them by a priority it was
+given. Deciding *what matters right now* needs the whole house's context —
+the room, the time, who is home, what is cooking — which only lives here.
+
+The unit already implements its half:
+
+- `POST /api/vortex/v1/surfaces` — show or replace a card
+- `DELETE /api/vortex/v1/surfaces/{id}` — withdraw it
+- `GET /api/vortex/v1/surfaces` — current cards (kiosk reads this on restart)
+
+Card body:
+
+```json
+{
+  "id": "garage",          // stable — pushing the same id REPLACES, never stacks
+  "kind": "alert",         // note | list | stat | media | image | alert | confirm
+  "priority": "high",      // ambient | normal | high | critical
+  "title": "Garage door still open",
+  "body": "It's been open for 40 minutes.",
+  "value": "4", "unit": "°C",          // stat only
+  "items": ["Milk", "Coffee"],          // list only, max 8
+  "image_url": "...", "icon": "⚠",
+  "actions": [{"label": "Close it", "intent": "cover.close.garage",
+               "style": "primary"}],    // max 3
+  "ttl_seconds": 900,
+  "speech": "The garage has been open for forty minutes."
+}
+```
+
+Priority semantics the unit enforces, so pick deliberately:
+
+- `ambient` — idle filler, shown only when nothing else wants the screen
+- `normal` — sits beside the clock
+- `high` — **wakes the screen from screensaver/backlight-off, and is spoken
+  aloud even on a unit that has a display**
+- `critical` — all of the above, plus takes over the whole panel and cuts off
+  whatever audio is playing
+
+`high` and `critical` are physical interruptions in a bedroom at 3am. They are
+for doorbells, smoke and water, not for a delivery notification.
+
+`speech` is what carries the card to a **screenless Mini**, which has no other
+way to receive it at all. A card with no `speech` is invisible on a Mini.
+
+What to build here:
+
+1. A surface publisher that pushes to the right units. Room-aware: the
+   shopping list belongs on the kitchen unit, not the bedroom one.
+2. Withdrawal when the fact stops being true. A card left to expire is a card
+   that stayed on screen after it stopped mattering.
+3. `POST /api/vortex/v1/surface-action` — **this endpoint does not exist yet
+   and Vortex already calls it.** Body: `{"surface_id", "intent", "unit_id"}`.
+   Vortex relays the tapped button verbatim and never interprets it. Re-run
+   the intent through `core/intent_router.py` with the same permission checks
+   as a voice command, including the Task 5 lock hard-deny — a confirm card on
+   a wall panel is a prompt, not an authorisation. Return 2xx only when the
+   action is accepted; the unit leaves the card up on anything else, so a tap
+   that did not land does not look like one that did.
+
 ### Task 5 — security fixes in passing
 
 - `fleet.py:122` and willow's auth both compare tokens with `!=`. Use

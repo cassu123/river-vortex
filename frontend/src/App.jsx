@@ -29,6 +29,10 @@ import IntercomBanner from './components/IntercomBanner';
 import ReminderBanner from './components/ReminderBanner';
 import Orb from './presence/Orb';
 import { IDLE_PRESENCE, makePresence } from './presence/presenceContract';
+import Surface from './surfaces/Surface';
+import {
+  isTakeover, makeSurface, pruneSurfaces, removeSurface, topSurface, upsertSurface,
+} from './surfaces/surfaceContract';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App Context — shared state accessible to all child components
@@ -76,6 +80,12 @@ const initialState = {
    * 30Hz envelope cannot trigger React renders on a Pi 4.
    */
   presence: IDLE_PRESENCE,
+  /**
+   * What River Song has asked this unit to show right now — see
+   * surfaces/surfaceContract.js. The unit renders these; it never decides
+   * which of them deserves the screen on its own.
+   */
+  surfaces: [],
 };
 
 function appReducer(state, action) {
@@ -128,6 +138,22 @@ function appReducer(state, action) {
       return { ...state, media: action.payload };
     case 'SET_DIAGNOSTICS':
       return { ...state, diagnostics: action.payload };
+    case 'SET_SURFACES':
+      return {
+        ...state,
+        surfaces: (action.payload || []).map(makeSurface).filter(Boolean),
+      };
+    case 'UPSERT_SURFACE':
+      return { ...state, surfaces: upsertSurface(state.surfaces, action.payload) };
+    case 'REMOVE_SURFACE':
+      return { ...state, surfaces: removeSurface(state.surfaces, action.payload) };
+    case 'PRUNE_SURFACES': {
+      // Only make a new array when something actually expired, so the sweep
+      // below does not re-render the whole tree once a second for nothing.
+      const live = pruneSurfaces(state.surfaces, action.payload);
+      if (live.length === state.surfaces.length) return state;
+      return { ...state, surfaces: live };
+    }
     case 'BOOT_COMPLETE':
       // Only leave the boot screen — never yank the user off a page they
       // navigated to while the self-test was still finishing.
@@ -153,6 +179,9 @@ export function useApp() {
 
 const WS_URL = `ws://${window.location.host}/api/ws`;
 const WS_RECONNECT_DELAY_MS = 3000;
+
+/** How often expired surface cards are swept off the screen. */
+const SURFACE_SWEEP_MS = 5000;
 
 function useBackendSocket(dispatch, amplitudeRef) {
   const wsRef = useRef(null);
@@ -220,6 +249,15 @@ function handleMessage(msg, dispatch, amplitudeRef) {
     }
     case 'diagnostic':
       dispatch({ type: 'SET_DIAGNOSTICS', payload: msg.report });
+      break;
+    case 'surface':
+      dispatch({ type: 'UPSERT_SURFACE', payload: makeSurface(msg.surface) });
+      break;
+    case 'surface_remove':
+      dispatch({ type: 'REMOVE_SURFACE', payload: msg.id });
+      break;
+    case 'surfaces_update':
+      dispatch({ type: 'SET_SURFACES', payload: msg.surfaces });
       break;
     case 'media_update':
       dispatch({ type: 'SET_MEDIA', payload: msg.media });
@@ -311,6 +349,21 @@ function PageRouter({ page, diagnostics }) {
  * @param {object} props.presence     - Presence object from the reducer.
  * @param {object} props.amplitudeRef - Live 0..1 envelope ref.
  */
+/**
+ * Critical surfaces take the whole panel, over whatever page is showing —
+ * a doorbell must not be hidden behind the camera grid someone left open.
+ * Everything quieter is drawn by the Ambient page inside its own layout.
+ *
+ * @param {object} props
+ * @param {object[]} props.surfaces
+ * @param {Function} props.onDismiss
+ */
+function SurfaceTakeover({ surfaces, onDismiss }) {
+  const top = topSurface(surfaces);
+  if (!isTakeover(top)) return null;
+  return <Surface surface={top} onDismiss={onDismiss} />;
+}
+
 function PresenceOverlay({ presence, amplitudeRef }) {
   if (presence.state === 'idle') return null;
   return (
@@ -371,6 +424,34 @@ export default function App() {
     dispatch({ type: 'SET_PAGE', payload: page });
   }, []);
 
+  // Pull the live surfaces once on load. The kiosk browser can restart on its
+  // own (or be reloaded during setup) long after River Song pushed a card, and
+  // the next push may be hours away — without this the screen comes back empty
+  // and looks like the feature is broken.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/vortex/v1/surfaces')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.surfaces) {
+          dispatch({ type: 'SET_SURFACES', payload: data.surfaces });
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Sweep expired surfaces. A card's lifetime has to pass without anyone
+  // pushing anything, so nothing else would ever take it down. The reducer
+  // returns the same state when nothing expired, so this is free at rest.
+  useEffect(() => {
+    const id = setInterval(
+      () => dispatch({ type: 'PRUNE_SURFACES', payload: Date.now() }),
+      SURFACE_SWEEP_MS,
+    );
+    return () => clearInterval(id);
+  }, []);
+
   // On first load, check whether this unit has been paired with River Song.
   // Unpaired units land on the Setup (pairing) screen instead of Ambient.
   useEffect(() => {
@@ -397,6 +478,10 @@ export default function App() {
     };
   }, []);
 
+  const dismissSurface = useCallback((id) => {
+    dispatch({ type: 'REMOVE_SURFACE', payload: id });
+  }, []);
+
   const contextValue = { state, dispatch, navigate, amplitudeRef };
 
   return (
@@ -406,6 +491,7 @@ export default function App() {
         <IntercomBanner />
         <AnnouncementBanner />
         <ReminderBanner />
+        <SurfaceTakeover surfaces={state.surfaces} onDismiss={dismissSurface} />
         <PresenceOverlay presence={state.presence} amplitudeRef={amplitudeRef} />
       </div>
     </AppContext.Provider>

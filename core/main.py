@@ -28,7 +28,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from core import (announce_api, diagnostics_api, intercom_api, lists_api,
-                  media_api, photos_api, routines_api, setup_api, timers_api)
+                  media_api, photos_api, routines_api, setup_api,
+                  surfaces_api, timers_api)
 from core.announce import AnnouncementSession
 from core.config import Config, ConfigError, config
 from core.constants import (
@@ -48,6 +49,7 @@ from core.diagnostics import Diagnostics
 from core.lists import ListsStore
 from display.photo_library import PhotoLibrary
 from core.routines import RoutineSession
+from core.surfaces import surface_store
 from core.timers import TimerManager
 from core.ws_hub import ws_hub
 from core.pairing import pairing_session
@@ -180,6 +182,12 @@ def create_app(
     # and touch control one player (see core/media_api.py).
     media_api.set_media_player(media_player)
     app.include_router(media_api.router)
+
+    # Surfaces — River Song pushes what the ambient screen should be showing
+    # right now, and withdraws it when it stops being true. The unit renders;
+    # it does not decide (see core/surfaces.py).
+    surfaces_api.set_surface_store(surface_store)
+    app.include_router(surfaces_api.router)
 
     # Boot self-test results — the boot screen reads these (core/diagnostics.py).
     #
@@ -600,6 +608,22 @@ class RiverVortex:
             logger.info("[OK] Lists & reminders cache ready.")
         except Exception as exc:
             logger.error("Lists & reminders cache failed to initialize: %s", exc)
+
+        # ── Surfaces ─────────────────────────────────────────────────────────
+        # What the ambient screen should be showing right now. River Song
+        # pushes the cards and withdraws them; the unit only renders. Give the
+        # store a way to wake the panel so a doorbell does not get painted
+        # behind a dark backlight (see core/surfaces.py).
+        if self._screen_manager:
+            # Wake to ambient rather than the dashboard: the card renders over
+            # the ambient screen, and nobody asked for a grid of light switches.
+            from display.screen_manager import DisplayMode
+            screen = self._screen_manager
+
+            async def _wake_for_surface() -> None:
+                await screen.wake(DisplayMode.AMBIENT)
+
+            surface_store.set_interrupt_handler(_wake_for_surface)
 
         # ── Ambient data (clock, date, weather) ───────────────────────────────
         # AmbientMode was never instantiated anywhere, so its clock and weather

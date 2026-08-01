@@ -144,7 +144,102 @@ proactive (non-voice-triggered) notifications surfaced on-device.
 
 ---
 
-## Phase 5 — Multi-User Voice Personalization (Stretch)
+## Phase 5 — The Device Layer ✅ DONE
+
+**Goal:** Phases 1–4 built features. This phase built the *device* — the parts
+that make a Vortex unit feel like a finished object rather than a browser
+pointed at a Pi.
+
+The scaffold's failure mode was not missing modules; it was **broken seams**.
+Every subsystem existed and almost nothing was connected: the presenter did not
+exist so a screenless unit fired events into nothing, `create_app` never loaded
+config on the `--factory` path, the boot screen lost a race with a health
+check, the wake word never reached command capture because of a loop it could
+not get. Most of this phase was wiring, and most of the bugs were only findable
+by running it and looking at the screen.
+
+- **River's presence** (`frontend/src/presence/`)
+  - Six states — `idle | listening | thinking | speaking | acting | error` —
+    in one contract, ported from River Song's `prototypes/presence-orb.html`.
+  - The orb is the first renderer of that contract. The 3D avatar later is a
+    second renderer, not a rewrite.
+  - Live TTS amplitude rides a ref updated from a rAF loop, so a 30Hz envelope
+    triggers zero React re-renders.
+  - ⚠️ **Not yet wired.** `AudioManager` tracks `LISTENING → PROCESSING →
+    RESPONDING` internally and never broadcasts it; no code sends a `presence`
+    or `amplitude` message. The orb therefore only ever shows `idle`. One
+    publish call at each state transition closes this.
+- **Presenter & voice** (`core/presenter.py`, `core/voice.py`)
+  - One image runs a screened Hub and a screenless Mini. The presenter decides
+    per-event whether it is shown, spoken, or both.
+  - Speech degrades in three tiers: River Song TTS → `espeak-ng` → a chime.
+  - Phrase building lives in one place, so every spoken line in the product can
+    be reviewed together.
+- **Boot self-test** (`core/diagnostics.py`, `pages/Boot.jsx`)
+  - 13 real checks, streamed to the screen as each finishes. Nothing on a
+    timer, nothing faked. A wall-mounted unit has no keyboard, so this is the
+    only place it can say what is wrong.
+  - `WARN` boots degraded; only `FAIL` marks the unit unhealthy.
+- **Burn-in protection** (`display/screen_manager.py`, `pages/Screensaver.jsx`)
+  - active → ambient → drifting screensaver → backlight off, all measured from
+    last activity. The final stage cuts `bl_power` rather than setting
+    brightness to zero, which is the only version that actually saves the panel.
+- **Ambient photos** (`display/photo_library.py`, `core/photos_api.py`)
+  - Local-first, so the backdrop survives River Song being down. Two `<img>`
+    layers crossfaded on opacity with a transform pan, and the next image
+    preloaded, so a slow SD card read never shows as a flash of nothing.
+  - Served by name match against the scanned library — no path joining, so no
+    traversal.
+- **Media playback** (`audio/media_player.py`, `core/media_api.py`)
+  - `mpv` as a resident child process over its JSON IPC socket. Transport,
+    queue, and ducking that is idempotent, so overlapping timers, routines and
+    announcements cannot stack four volume cuts and leave music inaudible.
+- **Identity** (`core/config.py`)
+  - `unit_id` derived from the Pi serial → MAC → random, because every unit is
+    flashed from one image.
+  - Name and location stay absent until pairing writes them. A unit in its box
+    does not claim to be the kitchen.
+
+---
+
+## Phase 6 — Surfaces: the Context-Aware Screen ✅ DONE (device half)
+
+**Goal:** Make the screen right without being asked — the thing a Nest Hub does
+that makes it worth wall-mounting, rather than a clock you occasionally poke.
+
+The design decision is that **Vortex does not decide what is important.**
+Knowing that needs the room, the time, who is home and what is cooking, which
+only exists on the server. So the unit ships a renderer and a priority queue,
+and River Song composes.
+
+- **Surface contract** (`core/surfaces.py`, `frontend/src/surfaces/surfaceContract.js`)
+  - Seven card kinds: `note`, `list`, `stat`, `media`, `image`, `alert`,
+    `confirm`. Deliberately few — each one is a permanent commitment.
+  - Four priorities: `ambient`, `normal`, `high`, `critical`. Priority is
+    physical: `high` wakes the panel and speaks aloud even on a screened unit,
+    `critical` takes the whole display and cuts playing audio.
+  - Upsert by id, so a card that updates itself replaces rather than stacking.
+  - Absolute expiry rather than a countdown, so a suspended kiosk does not come
+    back with an hour still on the clock. Bounded at 32 cards.
+- **Renderer** (`frontend/src/surfaces/Surface.jsx`)
+  - Sits beside the clock on the ambient page; `critical` takes over any page.
+  - Falls back to clock, weather and photos when nothing is pressing — a hub
+    with nothing to say should look deliberate, not blank.
+  - Same Pi 4 performance contract as the orb: transform and opacity only.
+- **Action relay** (`/api/vortex/v1/surfaces/{id}/action`)
+  - Tapping a button sends an opaque intent string to River Song. The unit
+    never parses or acts on it, so a `confirm` card on a wall panel is a
+    prompt, not a second permission system.
+  - The card only comes down once River Song accepts, so a tap that did not
+    land does not look like one that did.
+
+**Server half — not built.** The publisher that decides which unit gets which
+card, and `POST /api/vortex/v1/surface-action`, are Task 6 in
+`docs/RIVERSONG_PROMPT.md`.
+
+---
+
+## Phase 7 — Multi-User Voice Personalization (Stretch)
 
 **Goal:** If/when River Song supports per-user voice recognition, let Vortex
 reflect *who* it's talking to.
@@ -166,4 +261,44 @@ reflect *who* it's talking to.
 | 2 | Multi-room announcements / Drop In | ✅ Done |
 | 3 | Lists & reminders display | ✅ Done |
 | 4 | Routine presets & proactive notifications | ✅ Done |
-| 5 | Multi-user voice personalization | 🔜 Planned (stretch) |
+| 5 | Presenter, boot self-test, burn-in, photos, media | ✅ Done |
+| 5 | Presence orb | ⚠️ Built, not wired — nothing publishes state |
+| 6 | Surfaces — context-aware ambient screen | ✅ Done (device half) |
+| 7 | Multi-user voice personalization | 🔜 Planned (stretch) |
+
+---
+
+## Blocked on River Song
+
+Vortex's half of each of these is built and tested; the server does not serve
+the endpoint yet. Full specs in [docs/RIVERSONG_PROMPT.md](docs/RIVERSONG_PROMPT.md).
+
+| Task | What River Song owes |
+|---|---|
+| 1 | `/api/vortex/ws` — the persistent uplink |
+| 1b | Weather a unit token can actually fetch |
+| 2 | Replica snapshot + deltas, so units survive a server reboot |
+| 3 | Cooking sessions that follow you between rooms |
+| 3b | Music resolution that plays on the unit, not the server box |
+| 3c | Casting — most likely `pychromecast` via the existing `/api/home` layer |
+| 4 | The unauthenticated device half of pairing |
+| 5 | Constant-time token compare, hashed tokens at rest, lock hard-deny |
+| 6 | The surface publisher and `/api/vortex/v1/surface-action` |
+
+## Known Broken Seams
+
+- **Nothing drives the orb.** Contract, renderer and reducer are all built;
+  `AudioManager` never publishes its state transitions, so the orb sits on
+  `idle` forever. See Phase 5 above.
+
+## Not Started
+
+- **openWakeWord** — River Song already uses it and owns the wake word choice.
+  Vortex still ships Porcupine, so the two do not agree on "hey River".
+- **The duplicated `home_assistant/` package** — 824 lines River Song already
+  owns. Should be called through, not reimplemented.
+- **SoftAP provisioning** — changing WiFi after a house move without
+  re-pairing every unit.
+- **Pi image work** — hiding the rainbow splash so the self-test is the first
+  thing on screen.
+- **The 3D avatar** — a second renderer for the existing presence contract.

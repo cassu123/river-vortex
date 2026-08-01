@@ -49,6 +49,14 @@ RIVER_SONG_PHOTOS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/p
 RIVER_SONG_WEATHER_ENDPOINT: str = "/api/feeds/weather"
 RIVER_SONG_MEDIA_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/media"
 RIVER_SONG_DIAGNOSTICS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/diagnostics"
+RIVER_SONG_SURFACES_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/surfaces"
+
+# Where a tapped surface button is reported. This one lives ON RIVER SONG —
+# the unit relays the intent and never interprets it. Not implemented server
+# side yet; see docs/RIVERSONG_PROMPT.md.
+RIVER_SONG_SURFACE_ACTION_ENDPOINT: str = (
+    f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/surface-action"
+)
 
 # API timeouts (seconds)
 API_CONNECT_TIMEOUT: int = 5

@@ -1,0 +1,319 @@
+/*
+ * ============================================================================
+ * Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+ * File:     frontend/src/surfaces/surfaces.css
+ * Purpose:  Styles for surface cards — the things River Song asks a unit to
+ *           show on the ambient screen.
+ *
+ *           PERFORMANCE CONTRACT — same as orb.css. This runs 16 hours a day
+ *           on a Raspberry Pi 4:
+ *             - animate ONLY transform and opacity
+ *             - no animated blur, box-shadow, width/height or background
+ *             - glass is a static backdrop-filter, set once, never tweened
+ *
+ *           LEGIBILITY — cards sit over the photo backdrop, so every one
+ *           carries its own scrim rather than relying on the image behind it
+ *           being dark. A white beach photo must not eat the text.
+ * ============================================================================
+ */
+
+.surface {
+  position: relative;
+  box-sizing: border-box;
+  max-width: min(560px, 88vw);
+  padding: 20px 24px;
+  border-radius: 20px;
+  background: rgba(10, 12, 20, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+  color: #e8e8f0;
+  text-align: left;
+  /* Promote once, up front — not per animation frame. */
+  will-change: transform, opacity;
+  animation: surface-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes surface-in {
+  from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.97); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+/* Someone who has asked for less motion still gets the card, just placed. */
+@media (prefers-reduced-motion: reduce) {
+  .surface { animation: none; }
+}
+
+/* ── Title ──────────────────────────────────────────────────────────────── */
+
+.surface__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.surface__icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.surface__body {
+  margin: 8px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: rgba(232, 232, 240, 0.78);
+}
+
+/* ── stat — one big number ──────────────────────────────────────────────── */
+
+.surface__stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.surface__value {
+  font-size: 56px;
+  font-weight: 200;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.surface__unit {
+  font-size: 22px;
+  font-weight: 300;
+  color: rgba(232, 232, 240, 0.5);
+}
+
+/* ── list ───────────────────────────────────────────────────────────────── */
+
+.surface__list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.surface__item {
+  padding: 7px 0 7px 18px;
+  position: relative;
+  font-size: 16px;
+  color: rgba(232, 232, 240, 0.85);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.surface__item:first-child { border-top: none; }
+
+.surface__item::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: #78c8e6;
+  opacity: 0.65;
+}
+
+/* ── media — artwork beside a title ─────────────────────────────────────── */
+
+.surface__media {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.surface__art {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.surface__media-text { min-width: 0; }
+
+.surface__media-title {
+  font-size: 18px;
+  font-weight: 600;
+  /* Track names run long. One line, clipped — never reflow the card. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.surface__media-sub {
+  margin-top: 3px;
+  font-size: 14px;
+  color: rgba(232, 232, 240, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── image — a camera snapshot, mostly ──────────────────────────────────── */
+
+.surface__image img {
+  display: block;
+  width: 100%;
+  max-height: 46vh;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #000;
+}
+
+.surface__caption {
+  margin-top: 10px;
+  font-size: 14px;
+  color: rgba(232, 232, 240, 0.6);
+}
+
+/* ── Actions ────────────────────────────────────────────────────────────── */
+
+.surface__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.surface__action {
+  flex: 1;
+  /* Wall-mounted, tapped by someone holding a pan. Nothing under 48px. */
+  min-height: 52px;
+  padding: 0 18px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8e8f0;
+  font-size: 16px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+.surface__action:active { transform: scale(0.97); }
+
+.surface__action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.surface__action--primary {
+  background: rgba(120, 200, 230, 0.16);
+  border-color: rgba(120, 200, 230, 0.4);
+  color: #b6e4f5;
+}
+
+.surface__action--danger {
+  background: rgba(204, 85, 68, 0.16);
+  border-color: rgba(204, 85, 68, 0.42);
+  color: #f0a89c;
+}
+
+.surface__failed {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #f0a89c;
+}
+
+/* ── Priority framing ───────────────────────────────────────────────────── */
+/* Colour is never the only signal — the title text carries the meaning too,
+   so this reads correctly to someone who cannot distinguish the accents. */
+
+.surface--ambient {
+  background: rgba(10, 12, 20, 0.42);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.surface--high {
+  border-color: rgba(212, 160, 64, 0.45);
+  background: rgba(28, 22, 10, 0.72);
+}
+
+.surface--critical {
+  border-color: rgba(204, 85, 68, 0.6);
+  background: rgba(30, 12, 10, 0.86);
+}
+
+/* ── Takeover — critical cards own the whole panel ──────────────────────── */
+
+.surface--takeover {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  max-width: none;
+  border: none;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6vh 6vw;
+  text-align: center;
+  /* Baked gradient, painted once. A takeover that looks exactly like the
+     screen-off state is not an interruption — but this must never animate,
+     or the panel burns CPU for as long as the card is up. */
+  background:
+    radial-gradient(ellipse 120% 70% at 50% 0%,
+                    rgba(204, 85, 68, 0.22) 0%, transparent 60%),
+    rgba(14, 6, 6, 0.96);
+}
+
+/* A hairline at the top edge, so the takeover reads as urgent even to
+   someone who cannot pick the red tint out of the background. */
+.surface--takeover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(204, 85, 68, 0.75);
+}
+
+.surface--takeover .surface__title { font-size: 34px; }
+.surface--takeover .surface__body  { font-size: 20px; max-width: 34ch; }
+.surface--takeover .surface__value { font-size: 96px; }
+
+.surface--takeover .surface__actions {
+  width: min(520px, 84vw);
+  margin-top: 28px;
+}
+
+.surface__dismiss {
+  margin-top: 16px;
+  padding: 12px 28px;
+  min-height: 48px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: rgba(232, 232, 240, 0.6);
+  font-size: 15px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ── Small panels ───────────────────────────────────────────────────────── */
+/* A 7" screen in landscape is 600px tall. Everything shrinks rather than
+   scrolling, because there is no scrollbar to discover on a wall. */
+
+@media (max-height: 600px) {
+  .surface { padding: 14px 18px; border-radius: 16px; }
+  .surface__title { font-size: 17px; }
+  .surface__body  { font-size: 14px; }
+  .surface__value { font-size: 40px; }
+  .surface__art   { width: 56px; height: 56px; }
+  .surface__actions { margin-top: 12px; }
+  .surface__action { min-height: 46px; font-size: 15px; }
+  .surface--takeover .surface__title { font-size: 26px; }
+  .surface--takeover .surface__value { font-size: 64px; }
+}
