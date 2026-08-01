@@ -109,7 +109,8 @@ export default function Boot({ report }) {
             </>
           ) : (
             <span className="boot__counts">
-              {results.length} of 13 subsystems verified
+              {results.length}
+              {report?.total ? ` of ${report.total}` : ''} subsystems verified
             </span>
           )}
         </div>

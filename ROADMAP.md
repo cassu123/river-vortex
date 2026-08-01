@@ -233,9 +233,9 @@ and River Song composes.
   - The card only comes down once River Song accepts, so a tap that did not
     land does not look like one that did.
 
-**Server half — not built.** The publisher that decides which unit gets which
-card, and `POST /api/vortex/v1/surface-action`, are Task 6 in
-`docs/RIVERSONG_PROMPT.md`.
+**Server half — not built.** The room-aware publisher that decides which unit
+gets which card, and `POST /api/vortex/v1/surface-action` for tapped buttons,
+both live in River Song.
 
 ---
 
@@ -271,25 +271,61 @@ reflect *who* it's talking to.
 ## Blocked on River Song
 
 Vortex's half of each of these is built and tested; the server does not serve
-the endpoint yet. Full specs in [docs/RIVERSONG_PROMPT.md](docs/RIVERSONG_PROMPT.md).
+the endpoint yet.
 
-| Task | What River Song owes |
+| What River Song owes | Why it matters |
 |---|---|
-| 1 | `/api/vortex/ws` — the persistent uplink |
-| 1b | Weather a unit token can actually fetch |
-| 2 | Replica snapshot + deltas, so units survive a server reboot |
-| 3 | Cooking sessions that follow you between rooms |
-| 3b | Music resolution that plays on the unit, not the server box |
-| 3c | Casting — most likely `pychromecast` via the existing `/api/home` layer |
-| 4 | The unauthenticated device half of pairing |
-| 5 | Constant-time token compare, hashed tokens at rest, lock hard-deny |
-| 6 | The surface publisher and `/api/vortex/v1/surface-action` |
+| Constant-time token compare, hashed tokens at rest, lock hard-deny | Foundational. Everything else compounds on it. |
+| The unauthenticated device half of pairing | A fresh unit cannot be adopted without it. |
+| `/api/vortex/ws` — the persistent uplink | Also the source of the orb's missing amplitude stream. |
+| A TTS endpoint | Units currently answer in robotic espeak instead of River's voice. |
+| Replica snapshot + deltas | So units stay useful while the server reboots. |
+| Weather a unit token can actually fetch | The ambient screen reads "Weather loading…" forever without it. |
+| Device / camera / notification feeds | Three headline features are empty screens until this lands. |
+| The surface publisher and `/api/vortex/v1/surface-action` | What makes the ambient screen worth wall-mounting. |
+| Cooking sessions | So a recipe follows you between rooms. |
+| Music resolution that plays on the unit | Today it plays out of whatever the server box is plugged into. |
+| Casting | Most likely `pychromecast` via the existing `/api/home` layer. |
+| Camera: face matching, video signalling, occupancy, snapshots | The device capture layer is built and waiting. |
 
 ## Known Broken Seams
 
-- **Nothing drives the orb.** Contract, renderer and reducer are all built;
-  `AudioManager` never publishes its state transitions, so the orb sits on
-  `idle` forever. See Phase 5 above.
+Found by diffing the WebSocket message types the frontend *handles* against
+the ones the backend actually *sends*. Every one is the same shape: both
+halves written, nothing joining them.
+
+**Fixed:**
+
+- ~~Nothing drives the orb.~~ `AudioManager` now publishes every state
+  transition through `_set_state`, which does the assignment and the broadcast
+  in one call so the two cannot drift apart again.
+- ~~A unit that loses River Song only beeps.~~ It now says
+  "I can't reach River Song right now" through the offline voice, skipping the
+  server it has just failed to reach rather than stalling on the timeout.
+
+**Still open:**
+
+- **`devices_update` — nothing sends it.** `state.devices` is only ever
+  populated by this message, and no backend code emits it. There is also no
+  REST endpoint to fetch a device list, and `/api/devices/toggle`, which
+  `DeviceGrid` POSTs to, does not exist either. The entire Home Assistant
+  device UI renders an empty grid.
+- **`cameras_update` — nothing sends it.** Same story; the Cameras page is
+  permanently empty.
+- **`notifications_update` — nothing sends it.** `NotificationBar` can dismiss
+  notifications it can never receive.
+- **`amplitude` — nothing sends it.** The orb's `speaking` state is meant to
+  pulse with River's voice; nothing measures the envelope of the TTS audio as
+  it plays, so `speaking` looks identical to `listening`.
+- **`pairing_pin` is broadcast but ignored.** The Setup page fetches the PIN
+  over REST instead. Harmless today because the PIN does not rotate, but the
+  message is dead weight.
+- **The ambient screen has no full-size orb.** Only the 44px corner overlay
+  exists, on the screen the unit shows most of the time.
+
+The device/camera/notification group is one decision, not three: they should
+be fed by River Song's Home Assistant layer rather than by this repo's
+duplicated `home_assistant/` package (see Not Started below).
 
 ## Not Started
 

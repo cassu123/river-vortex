@@ -342,8 +342,15 @@ function PageRouter({ page, diagnostics }) {
  * Presence overlay — River's orb, shown over whatever page is active
  * whenever she is engaged. Hidden at rest so the ambient screen stays clean.
  *
- * The Ambient page renders its own full-size orb; this is the compact
- * version that appears on the interactive pages.
+ * This compact orb is currently the ONLY one: the Ambient page does not
+ * render a full-size version, despite an earlier comment here claiming it
+ * did. Worth revisiting — on the ambient screen, which is what the unit shows
+ * most of the time, River is a 44px dot in the corner.
+ *
+ * Driven by AudioManager._set_state (see audio/audio_manager.py). Note that
+ * `speaking` currently looks the same as `listening`, because the amplitude
+ * that is meant to make it pulse is still unwired — nothing measures the
+ * envelope of the TTS audio as it plays.
  *
  * @param {object} props
  * @param {object} props.presence     - Presence object from the reducer.

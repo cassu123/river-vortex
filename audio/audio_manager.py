@@ -23,11 +23,21 @@ from typing import Optional
 
 from core.config import config
 from core.constants import VortexState
+from core.ws_hub import ws_hub
 from audio.microphone import Microphone, MicrophoneError
 from audio.speaker import Speaker
 from audio.wake_word import WakeWordDetector
 
 logger = logging.getLogger(__name__)
+
+#: What River says when she cannot be reached. Spoken locally, so a unit that
+#: has lost the server still answers with words rather than a bare error tone —
+#: a beep tells you something went wrong but not what, and on a screenless Mini
+#: it is the only thing you get.
+UNREACHABLE_PHRASE = "I can't reach River Song right now."
+
+#: When the microphone itself failed, rather than the network.
+MIC_FAILURE_PHRASE = "I'm having trouble with my microphone."
 
 
 class AudioManager:
@@ -51,6 +61,9 @@ class AudioManager:
         self._speaker = Speaker()
         self._wake_word_detector: Optional[WakeWordDetector] = None
         self._running: bool = False
+        # Set directly only here, before there is a loop to broadcast on.
+        # Everywhere else goes through _set_state so the orb cannot fall out
+        # of sync with what the unit is actually doing.
         self._state: VortexState = VortexState.IDLE
         # Captured in start(). The wake word callback fires on the detector
         # thread, which has no event loop of its own — it needs an explicit
@@ -142,6 +155,48 @@ class AudioManager:
         return self._speaker
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Presence — telling the screen what this unit is doing
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @property
+    def state(self) -> VortexState:
+        """What the unit is currently doing."""
+        return self._state
+
+    async def _set_state(self, state: VortexState) -> None:
+        """
+        Change state and tell every connected display, in one call.
+
+        This exists as a single method rather than a bare assignment because
+        the two used to be separate and the second half was simply never
+        written: AudioManager tracked LISTENING → PROCESSING → RESPONDING
+        perfectly and told nobody, so the presence orb sat on idle forever
+        while the unit was plainly busy. Binding them together means a future
+        state cannot be added without the screen learning about it.
+        """
+        self._state = state
+        await self._publish_presence(state)
+
+    async def _publish_presence(self, state: VortexState) -> None:
+        """
+        Broadcast the presence state to the frontend.
+
+        The frontend maps VortexState names itself (see toPresenceState in
+        presenceContract.js), so the enum name is sent as-is rather than
+        translated here — one mapping table, on the side that renders it.
+
+        A broadcast failure must never break the voice path: losing the orb
+        is cosmetic, losing the ability to answer is not.
+        """
+        try:
+            await ws_hub.broadcast({
+                "type": "presence",
+                "data": {"state": state.name},
+            })
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.debug("Presence broadcast failed (%s) — continuing.", exc)
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Wake Word → Command Flow
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -190,7 +245,7 @@ class AudioManager:
         if not self._running:
             return
 
-        self._state = VortexState.LISTENING
+        await self._set_state(VortexState.LISTENING)
         logger.info("Capturing voice command...")
 
         # stream_until_silence() is a BLOCKING generator over PyAudio reads —
@@ -205,34 +260,59 @@ class AudioManager:
             audio_chunks = await asyncio.to_thread(_collect)
         except MicrophoneError as exc:
             logger.error("Microphone error during command capture: %s", exc)
-            self._speaker.play_chime("error")
-            self._state = VortexState.IDLE
+            await self._say_locally(MIC_FAILURE_PHRASE)
+            await self._set_state(VortexState.IDLE)
             return
 
         if not audio_chunks:
+            # Woken by mistake, or the user said nothing. Saying "I didn't
+            # catch that" to an empty room is worse than staying quiet.
             logger.warning("No audio captured — ignoring.")
-            self._state = VortexState.IDLE
+            await self._set_state(VortexState.IDLE)
             return
 
         audio_data = b"".join(audio_chunks)
         logger.info("Command captured: %d bytes. Sending to River Song.", len(audio_data))
 
-        self._state = VortexState.PROCESSING
+        await self._set_state(VortexState.PROCESSING)
         try:
             from connectivity.api_client import APIClient
             client = APIClient()
             response_audio = await client.send_voice_command(audio_data)
 
             if response_audio:
-                self._state = VortexState.RESPONDING
+                await self._set_state(VortexState.RESPONDING)
                 self._speaker.play(response_audio, interrupt=True)
                 self._speaker.play_chime("done")
             else:
+                # River Song answered but had nothing to play. It heard us, so
+                # a chime is honest here — there is no failure to explain.
                 logger.warning("River Song returned no audio response.")
-                self._speaker.play_chime("error")
+                self._speaker.play_chime("done")
 
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Failed to process command with River Song: %s", exc)
-            self._speaker.play_chime("error")
+            await self._set_state(VortexState.RESPONDING)
+            await self._say_locally(UNREACHABLE_PHRASE)
         finally:
-            self._state = VortexState.IDLE
+            await self._set_state(VortexState.IDLE)
+
+    async def _say_locally(self, phrase: str) -> None:
+        """
+        Say something without going back to River Song.
+
+        Used on the failure paths, where the server has just proven itself
+        unreachable — asking it to render the apology would stall for the
+        connect timeout and then fail anyway, with the user stood there
+        waiting. voice.speak still falls through espeak-ng to a chime, so a
+        unit with no offline speech installed is no worse off than before.
+        """
+        try:
+            from core.voice import voice
+            await voice.speak(phrase, interrupt=True, prefer_local=True)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Local speech failed (%s) — falling back to chime.", exc)
+            try:
+                self._speaker.play_chime("error")
+            except Exception:  # pylint: disable=broad-except
+                pass

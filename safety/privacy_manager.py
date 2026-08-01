@@ -17,7 +17,7 @@ import logging
 from typing import Optional
 
 from core.config import config
-from core.constants import PRIVACY_CAM_MUTE_GPIO_PIN, PRIVACY_MIC_MUTE_GPIO_PIN
+from core.constants import PRIVACY_CAM_ACTIVE_GPIO_PIN, PRIVACY_MIC_MUTE_GPIO_PIN
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,9 @@ class PrivacyManager:
         """Initialize PrivacyManager."""
         self._mic_muted: bool = config.get("privacy_mic_mute_on_startup", False)
         self._cam_muted: bool = config.get("privacy_cam_mute_on_startup", False)
+        # How many capture sessions currently hold the camera open. The LED
+        # follows this count, not the mute flag — see _apply_cam_state.
+        self._cam_active_holders: int = 0
         self._gpio_available: bool = False
         self._gpio = None
 
@@ -112,16 +115,53 @@ class PrivacyManager:
     # ─────────────────────────────────────────────────────────────────────────
 
     def mute_camera(self) -> None:
-        """Block camera access and activate the camera LED indicator."""
+        """
+        Block camera access.
+
+        Note this does NOT touch the LED. The LED reports whether the lens is
+        live, and muting while a session is somehow still open must not darken
+        it — the light has to keep telling the truth even when the software is
+        in a state it should not be in.
+        """
         self._cam_muted = True
-        self._apply_cam_state()
         logger.info("Camera muted by privacy manager.")
 
     def unmute_camera(self) -> None:
-        """Allow camera access and deactivate the camera LED indicator."""
+        """Allow camera access. Does not itself open the camera."""
         self._cam_muted = False
-        self._apply_cam_state()
         logger.info("Camera unmuted by privacy manager.")
+
+    # ── Capture interlock ────────────────────────────────────────────────────
+    # display/camera.py calls these around every capture. They are the ONLY
+    # way the camera LED changes, which is what makes the indicator an
+    # interlock rather than a hint: acquiring the camera lights it, and there
+    # is no code path that gets frames without going through here.
+
+    def acquire_camera(self) -> bool:
+        """
+        Register that a capture session is opening the camera, and light the
+        indicator BEFORE any frame can be read.
+
+        Returns:
+            False if the camera is muted, in which case the caller must not
+            open the device.
+        """
+        if self._cam_muted:
+            logger.info("Camera acquisition refused — muted.")
+            return False
+        self._cam_active_holders += 1
+        self._apply_cam_state()
+        return True
+
+    def release_camera(self) -> None:
+        """Register that a capture session has closed the camera."""
+        self._cam_active_holders = max(0, self._cam_active_holders - 1)
+        self._apply_cam_state()
+
+    @property
+    def cam_active(self) -> bool:
+        """True while at least one capture session holds the camera open."""
+        return self._cam_active_holders > 0
 
     def toggle_camera(self) -> bool:
         """
@@ -151,6 +191,9 @@ class PrivacyManager:
         return {
             "mic_muted": self._mic_muted,
             "cam_muted": self._cam_muted,
+            # Shown on screen as well as on the LED, so someone looking at the
+            # panel does not have to trust a single indicator.
+            "cam_active": self.cam_active,
         }
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -168,13 +211,13 @@ class PrivacyManager:
             GPIO.setmode(GPIO.BCM)
             GPIO.setwarnings(False)
             GPIO.setup(PRIVACY_MIC_MUTE_GPIO_PIN, GPIO.OUT)
-            GPIO.setup(PRIVACY_CAM_MUTE_GPIO_PIN, GPIO.OUT)
+            GPIO.setup(PRIVACY_CAM_ACTIVE_GPIO_PIN, GPIO.OUT)
             self._gpio = GPIO
             self._gpio_available = True
             logger.debug(
                 "GPIO initialized. Mic LED: pin %d | Cam LED: pin %d",
                 PRIVACY_MIC_MUTE_GPIO_PIN,
-                PRIVACY_CAM_MUTE_GPIO_PIN,
+                PRIVACY_CAM_ACTIVE_GPIO_PIN,
             )
         except (ImportError, RuntimeError):
             logger.debug("RPi.GPIO not available — hardware LED indicators disabled.")
@@ -190,9 +233,14 @@ class PrivacyManager:
                 logger.debug("GPIO mic LED error: %s", exc)
 
     def _apply_cam_state(self) -> None:
-        """Drive the camera mute LED to match the current mute state."""
+        """
+        Drive the camera LED to match whether the lens is actually live.
+
+        HIGH = camera active. The inverse of the mic LED, deliberately — see
+        PRIVACY_CAM_ACTIVE_GPIO_PIN in core/constants.py.
+        """
         if self._gpio_available and self._gpio:
             try:
-                self._gpio.output(PRIVACY_CAM_MUTE_GPIO_PIN, self._cam_muted)
+                self._gpio.output(PRIVACY_CAM_ACTIVE_GPIO_PIN, self.cam_active)
             except Exception as exc:
                 logger.debug("GPIO cam LED error: %s", exc)

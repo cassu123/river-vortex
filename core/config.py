@@ -414,6 +414,29 @@ class Config:
             "cap_display": capabilities.get("display", True),
             "cap_intercom": capabilities.get("intercom", True),
             "cap_home_assistant": capabilities.get("home_assistant", True),
+            # Optional hardware. These default to FALSE, unlike the four above:
+            # assuming a camera that is not fitted would be a bug, whereas
+            # assuming one that IS fitted is a privacy incident.
+            "cap_camera": capabilities.get("camera", False),
+            "cap_light_sensor": capabilities.get("light_sensor", False),
+            "cap_presence_sensor": capabilities.get("presence_sensor", False),
+        })
+
+        # What the camera is allowed to be used FOR, tracked separately from
+        # whether one is fitted.
+        #
+        # Consent is per purpose on purpose. Someone who wants to video call
+        # the kitchen has not thereby agreed to motion snapshots being kept, or
+        # to their face being matched against a roster. Collapsing these into
+        # one "camera: true" switch is how a device ends up doing something its
+        # owner never chose — so each is its own flag, each defaults off, and
+        # the capture layer refuses a purpose that is not enabled.
+        purposes: Dict[str, Any] = profile_data.get("camera_purposes", {})
+        self._settings.update({
+            "camera_purpose_video_calls": purposes.get("video_calls", False),
+            "camera_purpose_motion_snapshots": purposes.get("motion_snapshots", False),
+            "camera_purpose_presence": purposes.get("presence", False),
+            "camera_purpose_face_recognition": purposes.get("face_recognition", False),
         })
 
         hardware: Dict[str, Any] = profile_data.get("hardware", {})

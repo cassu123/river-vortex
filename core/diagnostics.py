@@ -27,6 +27,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from core.config import config
+from core.constants import CAMERA_PURPOSES
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,11 @@ class Diagnostics:
             "complete": self._complete,
             "counts": counts,
             "healthy": counts[CheckStatus.FAIL] == 0,
+            # How many checks this run will produce. The boot screen shows
+            # "n of total" while the run is in flight, and hardcoding that
+            # total on the frontend meant it silently lied every time a check
+            # was added.
+            "total": len(self._checks()),
             # Freeze at completion. Measuring against "now" made the total
             # climb forever once the run had finished, so a report fetched a
             # minute later claimed the self-test took a minute.
@@ -145,6 +151,9 @@ class Diagnostics:
             ("DISPLAY", self._check_display),
             ("AUDIO OUTPUT", self._check_audio_output),
             ("MICROPHONE", self._check_microphone),
+            ("CAMERA", self._check_camera),
+            ("LIGHT SENSOR", self._check_light_sensor),
+            ("PRESENCE SENSOR", self._check_presence_sensor),
             ("SPEECH SYNTH", self._check_speech),
             ("MEDIA ENGINE", self._check_media),
             ("NETWORK LINK", self._check_network),
@@ -311,6 +320,43 @@ class Diagnostics:
             return CheckStatus.SKIP, "alsa-utils not installed"
         except Exception as exc:  # pylint: disable=broad-except
             return CheckStatus.WARN, f"unreadable: {exc}"
+
+    def _check_camera(self):
+        """
+        The onboard camera, on units that have one.
+
+        Reports what the camera is permitted to do as well as whether it
+        works. A fitted camera with every purpose switched off is a correct,
+        deliberate state — the boot screen says so rather than calling it a
+        fault, because "installed but not in use" is a thing an owner chooses.
+        """
+        if not config.get("cap_camera", False):
+            return CheckStatus.SKIP, "not fitted"
+
+        enabled = [p for p in CAMERA_PURPOSES
+                   if config.get(f"camera_purpose_{p}", False)]
+        if not enabled:
+            return CheckStatus.OK, "fitted, no uses enabled"
+
+        try:
+            import cv2  # type: ignore  # noqa: F401
+        except ImportError:
+            return (CheckStatus.WARN,
+                    "opencv missing — install python3-opencv")
+
+        return CheckStatus.OK, f"fitted, enabled for: {', '.join(enabled)}"
+
+    def _check_light_sensor(self):
+        """Ambient light sensor, used to set screen brightness."""
+        if not config.get("cap_light_sensor", False):
+            return CheckStatus.SKIP, "not fitted"
+        return CheckStatus.OK, "fitted"
+
+    def _check_presence_sensor(self):
+        """mmWave presence sensor, used for proximity wake and occupancy."""
+        if not config.get("cap_presence_sensor", False):
+            return CheckStatus.SKIP, "not fitted"
+        return CheckStatus.OK, "fitted"
 
     def _check_speech(self):
         """Offline speech fallback, used when River Song is unreachable."""
