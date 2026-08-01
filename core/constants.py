@@ -45,7 +45,7 @@ RIVER_SONG_PHOTOS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/p
 
 # Weather lives on River Song's feeds API, NOT under /api/vortex. Note it
 # authenticates a user rather than a unit token, so a Vortex unit cannot call
-# it yet -- see docs/RIVERSONG_PROMPT.md.
+# it yet -- which is why the ambient screen shows no weather. See ROADMAP.md.
 RIVER_SONG_WEATHER_ENDPOINT: str = "/api/feeds/weather"
 RIVER_SONG_MEDIA_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/media"
 RIVER_SONG_DIAGNOSTICS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/diagnostics"
@@ -53,7 +53,7 @@ RIVER_SONG_SURFACES_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}
 
 # Where a tapped surface button is reported. This one lives ON RIVER SONG —
 # the unit relays the intent and never interprets it. Not implemented server
-# side yet; see docs/RIVERSONG_PROMPT.md.
+# side yet, so taps currently 502; see ROADMAP.md.
 RIVER_SONG_SURFACE_ACTION_ENDPOINT: str = (
     f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/surface-action"
 )

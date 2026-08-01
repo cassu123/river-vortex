@@ -119,7 +119,6 @@ river-vortex/
 │   ├── surfaces/       # Surface contract, card renderer, card CSS
 │   └── components/     # Clock, Weather, PhotoBackdrop, banners, widgets
 ├── units/              # Per-unit vortex_profile.json (identity written at pairing)
-├── docs/               # RIVERSONG_PROMPT.md — the server-side counterpart
 └── tests/              # Unit tests
 ```
 
@@ -346,9 +345,9 @@ Lifetimes are absolute deadlines, not countdowns, so a suspended kiosk does not
 come back with an hour still on the clock. The store is capped at 32 cards and
 sheds the least important oldest first.
 
-The server half — the publisher, and the `/api/vortex/v1/surface-action`
-endpoint the unit already calls — is written up as Task 6 in
-[docs/RIVERSONG_PROMPT.md](docs/RIVERSONG_PROMPT.md).
+The server half — the room-aware publisher that decides which unit gets which
+card, and the `/api/vortex/v1/surface-action` endpoint the unit already calls —
+lives in River Song and is not built yet.
 
 ### Boot self-test — `/api/vortex/v1/diagnostics`
 
@@ -552,8 +551,8 @@ matter is decided on the server:
 - Photo files are served by name match against the scanned library. There is no
   path joining, so there is no traversal.
 
-See Task 5 in [docs/RIVERSONG_PROMPT.md](docs/RIVERSONG_PROMPT.md) for the
-server-side half, which is where these are enforced.
+All of these are enforced in River Song, not here. A unit that could enforce
+its own permissions would be a unit worth stealing.
 
 ---
 
@@ -613,18 +612,21 @@ is not.
 ### Waiting on River Song
 
 These have a working Vortex half that calls an endpoint the server does not
-serve yet. Each is specced in [docs/RIVERSONG_PROMPT.md](docs/RIVERSONG_PROMPT.md):
+serve yet:
 
 | Feature | What is missing |
 |---|---|
-| Surface publisher | The server side that decides which unit gets which card, plus `/api/vortex/v1/surface-action` for tapped buttons (Task 6). |
-| Weather on units | The feeds API authenticates a *user*; a unit holds a *unit* token, so it cannot call it. The widget shows "Weather loading…" until this is resolved (Task 1b). |
-| Music resolution | River Song's YouTube Music provider currently plays on the server box. It needs to hand a stream URL back so the sound comes out of the unit you asked (Task 3b). |
-| `/api/vortex/ws` | The persistent uplink, so units are pushed to rather than polling (Task 1). |
-| Replica sync | Local mirror of River Song state, so a unit stays useful while the server reboots (Task 2). |
-| Cooking sessions | Server-owned recipe state, so a session can follow you between rooms (Task 3). |
-| Pairing endpoints | The unauthenticated device half of the claim flow (Task 4). |
-| Security fixes | Constant-time token compare, hashing tokens at rest, and the lock hard-deny (Task 5). |
+| Surface publisher | The room-aware server side that decides which unit gets which card, plus `/api/vortex/v1/surface-action` for tapped buttons. |
+| River's voice | `core/voice.py` probes for a TTS endpoint that does not exist, so every unit falls through to robotic offline espeak-ng instead of River. |
+| Weather on units | The feeds API authenticates a *user*; a unit holds a *unit* token, so it cannot call it. The widget shows "Weather loading…" until this is resolved. |
+| Device / camera / notification data | Nothing feeds the grids. Should come from River Song's Home Assistant layer, not this repo's duplicate. |
+| Music resolution | River Song's YouTube Music provider plays on the server box. It needs to hand a stream URL back so the sound comes out of the unit you asked. |
+| `/api/vortex/ws` | The persistent uplink, so units are pushed to rather than polling — and the source of the orb's missing amplitude stream. |
+| Replica sync | Local mirror of River Song state, so a unit stays useful while the server reboots. |
+| Cooking sessions | Server-owned recipe state, so a session can follow you between rooms. |
+| Pairing endpoints | The unauthenticated device half of the claim flow. |
+| Security fixes | Constant-time token compare, hashing tokens at rest, and the lock hard-deny. |
+| Camera features | Face matching, video call signalling, occupancy routing, motion snapshots. The device capture layer is built and waiting. |
 
 ### Broken seams on this side
 
