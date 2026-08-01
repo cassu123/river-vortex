@@ -60,13 +60,19 @@ class VoiceOutput:
         """Attach the AudioManager once audio has started."""
         self._audio_manager = audio_manager
 
-    async def speak(self, text: str, interrupt: bool = False) -> bool:
+    async def speak(self, text: str, interrupt: bool = False,
+                    prefer_local: bool = False) -> bool:
         """
         Say something out loud, using the best tier available.
 
         Args:
-            text:      What to say. Empty strings are ignored.
-            interrupt: Cut off whatever is currently playing.
+            text:         What to say. Empty strings are ignored.
+            interrupt:    Cut off whatever is currently playing.
+            prefer_local: Skip River Song and go straight to the offline
+                          voice. For callers that have just failed to reach
+                          the server — retrying a connection known to be down
+                          only makes the user wait out the timeout before
+                          hearing the same answer.
 
         Returns:
             True if audio was produced by any tier, False if the unit stayed
@@ -80,10 +86,11 @@ class VoiceOutput:
             return False
 
         # Tier 1 — River Song's real voice.
-        audio = await self._tts_from_river_song(text)
-        if audio:
-            self._audio_manager.speaker.play(audio, interrupt=interrupt)
-            return True
+        if not prefer_local:
+            audio = await self._tts_from_river_song(text)
+            if audio:
+                self._audio_manager.speaker.play(audio, interrupt=interrupt)
+                return True
 
         # Tier 2 — local, offline, robotic but intelligible.
         audio = await self._tts_local(text)

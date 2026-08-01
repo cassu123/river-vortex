@@ -9,7 +9,7 @@
 | Capability | Details |
 |---|---|
 | **Always-on voice** | Wake word detection runs locally. No audio leaves the device until the wake word is confirmed. |
-| **River's presence** | An animated orb shows what River is doing — listening, thinking, speaking, acting. One shared contract, so the 3D avatar later drops into the same slot. ⚠️ The orb is built but **nothing drives it yet** — see [What Is Not Finished](#what-is-not-finished). |
+| **River's presence** | An animated orb shows what River is doing — listening, thinking, speaking. Driven live by the voice pipeline. One shared contract, so the 3D avatar later drops into the same slot. |
 | **Ambient display** | Clock, weather and photos on a 7" or 10" touchscreen, plus whatever River has decided matters right now (see [Surfaces](#surfaces--api-vortex-v1-surfaces)). |
 | **Surfaces** | River Song pushes a card — bin day, garage still open, someone at the door — and the unit renders it. The unit holds no opinion about what deserves the screen. |
 | **Screenless units** | The same image runs on a display-less "Mini". Anything the screen would show is spoken instead, decided in one place (`core/presenter.py`). |
@@ -17,8 +17,8 @@
 | **Burn-in protection** | Four stages — active → ambient → drifting screensaver → backlight off. The last one actually cuts `bl_power`, not brightness to zero. |
 | **Photo backdrop** | A local photo library crossfades behind the clock, Nest Hub style. Local-first, so it keeps working with River Song down. |
 | **Media playback** | Streaming music and radio via `mpv`, with transport controls, a queue, and ducking for timers, routines and announcements. |
-| **Device control** | Full Home Assistant integration — lights, thermostat, covers, media players. Locks are *designed* to be hard-denied by voice, enforced on the server — not yet implemented there. |
-| **Camera feeds** | Live snapshots and streams from all HA camera entities. |
+| **Device control** | ⚠️ **UI only.** The grid and toggles are built; nothing feeds them devices yet. Locks are *designed* to be hard-denied by voice on the server — also not implemented there. |
+| **Camera feeds** | ⚠️ **UI only.** Same gap — the page renders, nothing supplies the HA camera list. |
 | **Timers & alarms** | Voice-activated countdown timers with on-screen display and a chime when they elapse. |
 | **Guided routines** | Step-by-step walkthroughs (cooking mode, workout mode, bedtime checklists) that duck background music and switch the display for the duration. |
 | **Routine presets** | "Good Morning" / "Good Night" / "Leaving Home" style one-tap routines that activate a Home Assistant scene and start a guided checklist. |
@@ -275,8 +275,8 @@ through `core/ws_hub.py`. Relevant message types added in this phase:
 | `surface` | `{ "surface": {...} }` | River Song pushes a card to show (`Surface`). Replaces any card with the same `id`. |
 | `surface_remove` | `{ "id": "..." }` | A card is withdrawn before it expires. |
 | `surfaces_update` | `{ "surfaces": [...] }` | The whole card set is replaced (currently only on clear). |
-| `presence` | `{ "data": {...} }` | River's state changes — drives the orb. See `presence/presenceContract.js`. ⚠️ Handled by the frontend; **no backend code sends this yet.** |
-| `amplitude` | `{ "value": 0.0–1.0 }` | Live TTS envelope, ~30Hz. Written to a ref, deliberately **not** dispatched. ⚠️ Same — nothing sends it yet. |
+| `presence` | `{ "data": {"state": "LISTENING"} }` | River's state changes — drives the orb. Sent by `AudioManager._set_state`; the frontend maps `VortexState` names itself. |
+| `amplitude` | `{ "value": 0.0–1.0 }` | Live TTS envelope, ~30Hz. Written to a ref, deliberately **not** dispatched. ⚠️ Nothing sends it yet, so `speaking` cannot pulse. |
 | `media_update` | `{ "media": {...} }` | Playback state changes (`NowPlaying`). |
 | `diagnostic` | `{ "result": {...}, "report": {...} }` | A boot self-test check finished (`Boot`). |
 | `ambient_update` | `{ "data": {...} }` | Clock/date/weather refresh. |
@@ -628,13 +628,25 @@ serve yet. Each is specced in [docs/RIVERSONG_PROMPT.md](docs/RIVERSONG_PROMPT.m
 
 ### Broken seams on this side
 
-- **Nothing drives the orb.** `AudioManager` tracks its state through
-  `LISTENING → PROCESSING → RESPONDING` and never broadcasts it, and no code
-  anywhere sends a `presence` or `amplitude` message. The contract, the
-  renderer and the reducer are all in place; the one line that publishes the
-  state transition is missing, so in practice the orb only ever shows `idle`
-  (or `error`, when the WebSocket drops). This is the same class of bug as the
-  rest of the original scaffold — a complete subsystem with no wire into it.
+Found by diffing the WebSocket messages the frontend handles against the ones
+the backend sends. All the same shape: both halves written, nothing joining
+them. The orb and the offline-speech seams are now fixed; these are not.
+
+- **The device, camera and notification screens have no data source.**
+  `state.devices`, `state.cameras` and `state.notifications` are populated only
+  by `devices_update` / `cameras_update` / `notifications_update`, and nothing
+  sends any of them. There is no REST endpoint either, and `/api/devices/toggle`
+  — which `DeviceGrid` POSTs to — does not exist. So "Device control" and
+  "Camera feeds" in the table above are **UI only**: the pages render, the grid
+  is empty.
+- **Nothing measures the TTS envelope**, so the orb's `speaking` state cannot
+  pulse and looks identical to `listening`.
+- **No full-size orb on the ambient screen** — only the small corner overlay,
+  on the screen the unit shows most of the time.
+
+The first of those is one decision rather than three: the data should come
+from River Song's Home Assistant layer, not from this repo's duplicated
+`home_assistant/` package.
 
 ### Not started here
 

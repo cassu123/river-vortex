@@ -287,9 +287,42 @@ the endpoint yet. Full specs in [docs/RIVERSONG_PROMPT.md](docs/RIVERSONG_PROMPT
 
 ## Known Broken Seams
 
-- **Nothing drives the orb.** Contract, renderer and reducer are all built;
-  `AudioManager` never publishes its state transitions, so the orb sits on
-  `idle` forever. See Phase 5 above.
+Found by diffing the WebSocket message types the frontend *handles* against
+the ones the backend actually *sends*. Every one is the same shape: both
+halves written, nothing joining them.
+
+**Fixed:**
+
+- ~~Nothing drives the orb.~~ `AudioManager` now publishes every state
+  transition through `_set_state`, which does the assignment and the broadcast
+  in one call so the two cannot drift apart again.
+- ~~A unit that loses River Song only beeps.~~ It now says
+  "I can't reach River Song right now" through the offline voice, skipping the
+  server it has just failed to reach rather than stalling on the timeout.
+
+**Still open:**
+
+- **`devices_update` — nothing sends it.** `state.devices` is only ever
+  populated by this message, and no backend code emits it. There is also no
+  REST endpoint to fetch a device list, and `/api/devices/toggle`, which
+  `DeviceGrid` POSTs to, does not exist either. The entire Home Assistant
+  device UI renders an empty grid.
+- **`cameras_update` — nothing sends it.** Same story; the Cameras page is
+  permanently empty.
+- **`notifications_update` — nothing sends it.** `NotificationBar` can dismiss
+  notifications it can never receive.
+- **`amplitude` — nothing sends it.** The orb's `speaking` state is meant to
+  pulse with River's voice; nothing measures the envelope of the TTS audio as
+  it plays, so `speaking` looks identical to `listening`.
+- **`pairing_pin` is broadcast but ignored.** The Setup page fetches the PIN
+  over REST instead. Harmless today because the PIN does not rotate, but the
+  message is dead weight.
+- **The ambient screen has no full-size orb.** Only the 44px corner overlay
+  exists, on the screen the unit shows most of the time.
+
+The device/camera/notification group is one decision, not three: they should
+be fed by River Song's Home Assistant layer rather than by this repo's
+duplicated `home_assistant/` package (see Not Started below).
 
 ## Not Started
 
