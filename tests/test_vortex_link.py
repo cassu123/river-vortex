@@ -179,6 +179,91 @@ class TestMediaFrames(LinkTestCase):
         self.media.play.assert_not_awaited()
 
 
+class TestUtterance(LinkTestCase):
+    """Captured voice goes up the socket, not to a REST endpoint that 404s."""
+
+    def _connect(self):
+        self.link._connected = True
+        self.link._socket = MagicMock()
+        self.link._socket.send = AsyncMock()
+        return self.link._socket
+
+    def _frames(self, socket):
+        return [json.loads(c.args[0]) for c in socket.send.await_args_list]
+
+    def test_a_short_command_is_one_final_frame(self):
+        socket = self._connect()
+        run(self.link.send_utterance(b"x" * 1000))
+        frames = self._frames(socket)
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0]["type"], "audio_chunk")
+        self.assertTrue(frames[0]["final"])
+
+    def test_audio_is_base64_encoded(self):
+        socket = self._connect()
+        run(self.link.send_utterance(b"RAWPCM"))
+        self.assertEqual(base64.b64decode(self._frames(socket)[0]["data"]), b"RAWPCM")
+
+    def test_a_long_command_is_split_and_only_the_last_frame_is_final(self):
+        """
+        Written for the fixed server. River Song currently discards non-final
+        chunks, so long commands are dropped there — but the moment it
+        accumulates them, this starts working with no change here.
+        """
+        from connectivity.vortex_link import AUDIO_CHUNK_BYTES
+        socket = self._connect()
+        run(self.link.send_utterance(b"y" * (AUDIO_CHUNK_BYTES * 2 + 10)))
+        frames = self._frames(socket)
+        self.assertEqual(len(frames), 3)
+        self.assertEqual([f["final"] for f in frames], [False, False, True])
+
+    def test_no_frame_exceeds_the_servers_limit(self):
+        """River Song rejects a decoded chunk over 128 KiB outright."""
+        from connectivity.vortex_link import AUDIO_CHUNK_BYTES
+        socket = self._connect()
+        run(self.link.send_utterance(b"z" * (AUDIO_CHUNK_BYTES * 3)))
+        for frame in self._frames(socket):
+            self.assertLessEqual(len(base64.b64decode(frame["data"])), 128 * 1024)
+
+    def test_the_whole_utterance_survives_the_split(self):
+        from connectivity.vortex_link import AUDIO_CHUNK_BYTES
+        socket = self._connect()
+        audio = bytes(range(256)) * (AUDIO_CHUNK_BYTES // 128)
+        run(self.link.send_utterance(audio))
+        rejoined = b"".join(base64.b64decode(f["data"]) for f in self._frames(socket))
+        self.assertEqual(rejoined, audio)
+
+    def test_sending_with_no_uplink_reports_it_was_never_heard(self):
+        self.assertFalse(run(self.link.send_utterance(b"x")))
+
+    def test_empty_audio_is_not_sent(self):
+        socket = self._connect()
+        self.assertFalse(run(self.link.send_utterance(b"")))
+        socket.send.assert_not_awaited()
+
+    def test_a_drop_mid_utterance_reports_failure(self):
+        """Half a command reaching River Song is worse than none."""
+        from connectivity.vortex_link import AUDIO_CHUNK_BYTES
+        socket = self._connect()
+        socket.send.side_effect = [None, RuntimeError("dropped")]
+        self.assertFalse(run(self.link.send_utterance(b"a" * (AUDIO_CHUNK_BYTES * 2))))
+
+
+class TestReplyTracking(LinkTestCase):
+    """Telling 'she answered' apart from 'the server went quiet'."""
+
+    def test_frames_river_initiates_count_as_a_reply(self):
+        for kind in ("presence", "amplitude", "audio", "surface"):
+            before = self.link.last_reply_at
+            run(self.link._dispatch({"type": kind}))
+            self.assertGreater(self.link.last_reply_at, before, kind)
+
+    def test_routine_feed_updates_do_not_count(self):
+        """They arrive on a timer and would make a silent server look alive."""
+        run(self.link._dispatch({"type": "devices_update", "data": []}))
+        self.assertEqual(self.link.last_reply_at, 0.0)
+
+
 class TestRelayedFrames(LinkTestCase):
     """
     Frames the browser already understands go straight through.

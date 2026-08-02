@@ -28,6 +28,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -49,6 +50,14 @@ RECONNECT_MAX_SECONDS = 60.0
 #: Keepalive. Home routers drop idle connections, and a socket that is quietly
 #: dead looks exactly like a socket with nothing to say.
 PING_INTERVAL_SECONDS = 30.0
+
+#: Bytes of raw PCM per audio_chunk frame.
+#:
+#: River Song rejects a decoded chunk over 128 KiB. This sits under that with
+#: headroom — at 16kHz mono s16le it is three seconds per frame, so a long
+#: command becomes several frames rather than one oversized one that is
+#: dropped outright.
+AUDIO_CHUNK_BYTES = 96 * 1024
 
 
 def _ws_url(base_url: str, unit_id: str) -> str:
@@ -100,6 +109,7 @@ class VortexLink:
         self._running = False
         self._connected = False
         self._backoff = RECONNECT_MIN_SECONDS
+        self._last_reply_at = 0.0
 
     def attach(self, surface_store: Any = None, media_player: Any = None,
                audio_manager: Any = None) -> None:
@@ -185,6 +195,51 @@ class VortexLink:
         A report, not a request. River Song decides what to do about it.
         """
         await self.send("state", {"state": state})
+
+    async def send_utterance(self, audio: bytes) -> bool:
+        """
+        Send a captured command to River Song, in frames.
+
+        The reply does NOT come back from this call. River Song transcribes,
+        routes the intent, synthesises, and pushes `presence` and `audio`
+        frames back over this same socket — which is why the voice path moved
+        here from a REST POST: one socket, one auth path, and the orb can
+        track River's answer while she gives it.
+
+        Args:
+            audio: Raw PCM, 16kHz mono s16le, captured after the wake word.
+
+        Returns:
+            False if the uplink is down, meaning the command was never heard.
+
+        NOTE ON LENGTH: River Song currently discards every chunk marked
+        `final=False`, so only the last frame is transcribed and any command
+        over ~4 seconds is silently dropped server-side. The chunking below is
+        correct regardless and is deliberately written for the fixed server:
+        the moment it accumulates non-final chunks, long commands start
+        working with no change here.
+        """
+        if not audio:
+            return False
+        if not self._connected:
+            return False
+
+        total = len(audio)
+        sent = 0
+        while sent < total:
+            piece = audio[sent:sent + AUDIO_CHUNK_BYTES]
+            sent += len(piece)
+            ok = await self.send("audio_chunk", {
+                "data": base64.b64encode(piece).decode("ascii"),
+                "final": sent >= total,
+            })
+            if not ok:
+                logger.warning("Utterance cut short — uplink dropped mid-send.")
+                return False
+
+        logger.debug("Sent %d bytes of command audio in %d frame(s).",
+                     total, (total + AUDIO_CHUNK_BYTES - 1) // AUDIO_CHUNK_BYTES)
+        return True
 
     async def report_camera(self, camera_state: Dict[str, Any]) -> None:
         """
@@ -306,9 +361,26 @@ class VortexLink:
     # Dispatch — server frame to the local subsystem that already owns it
     # ─────────────────────────────────────────────────────────────────────────
 
+    @property
+    def last_reply_at(self) -> float:
+        """
+        Monotonic timestamp of the last frame that counts as River answering.
+
+        Lets a caller that handed over an utterance tell "she replied" from
+        "the server went quiet", without this module needing to know anything
+        about the voice flow.
+        """
+        return self._last_reply_at
+
     async def _dispatch(self, frame: Dict[str, Any]) -> None:
         """Route one server→unit frame."""
         kind = str(frame.get("type") or "")
+
+        # Anything River initiates counts as an answer. Deliberately not
+        # `replica` or the feed updates: those arrive on a timer and would
+        # make a silent server look responsive.
+        if kind in ("presence", "amplitude", "audio", "surface", "media"):
+            self._last_reply_at = time.monotonic()
 
         if kind == "surface":
             await self._on_surface(frame)

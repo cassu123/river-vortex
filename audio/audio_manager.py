@@ -39,6 +39,16 @@ UNREACHABLE_PHRASE = "I can't reach River Song right now."
 #: When the microphone itself failed, rather than the network.
 MIC_FAILURE_PHRASE = "I'm having trouble with my microphone."
 
+#: When River Song took the command and then went quiet. Says less than the
+#: unreachable phrase because the network is plainly fine — something further
+#: in failed, and guessing at what would be worse than admitting it.
+NO_REPLY_PHRASE = "Sorry, I didn't get an answer to that."
+
+#: How long to wait for River Song to start answering before giving up on her.
+#: Generous: transcription plus intent routing plus speech synthesis is a real
+#: amount of work, and cutting her off mid-thought is worse than a pause.
+REPLY_TIMEOUT_SECONDS = 20.0
+
 
 class AudioManager:
     """
@@ -276,26 +286,71 @@ class AudioManager:
 
         await self._set_state(VortexState.PROCESSING)
         try:
-            from connectivity.api_client import APIClient
-            client = APIClient()
-            response_audio = await client.send_voice_command(audio_data)
-
-            if response_audio:
-                await self._set_state(VortexState.RESPONDING)
-                self._speaker.play(response_audio, interrupt=True)
-                self._speaker.play_chime("done")
-            else:
-                # River Song answered but had nothing to play. It heard us, so
-                # a chime is honest here — there is no failure to explain.
-                logger.warning("River Song returned no audio response.")
-                self._speaker.play_chime("done")
-
+            sent = await self._send_to_river_song(audio_data)
         except Exception as exc:  # pylint: disable=broad-except
-            logger.error("Failed to process command with River Song: %s", exc)
+            logger.error("Failed to send command to River Song: %s", exc)
+            sent = False
+
+        if not sent:
             await self._set_state(VortexState.RESPONDING)
             await self._say_locally(UNREACHABLE_PHRASE)
-        finally:
             await self._set_state(VortexState.IDLE)
+            return
+
+        # Deliberately NOT setting IDLE here. The answer arrives asynchronously
+        # as `presence` and `audio` frames pushed back over the uplink, and
+        # River Song owns the orb from this point: it knows when it is
+        # thinking and when it starts speaking, and it streams the amplitude
+        # that makes the orb track her voice. Forcing IDLE now would blank the
+        # orb a fraction of a second before she answers.
+        await self._await_reply()
+
+    async def _await_reply(self) -> None:
+        """
+        Make sure a silent server does not leave the orb spinning forever.
+
+        Handing the utterance off means River Song owns the presence state
+        from here, which is right while she is answering — and a trap if she
+        never does. A transcription that fails, an intent that throws, a
+        server restarted mid-sentence: any of those leave the unit sat in
+        PROCESSING with a pulsing orb and no explanation, and on a wall panel
+        there is nothing the user can do about it.
+
+        So: wait, and if nothing came back, say so out loud and stand down.
+        """
+        from connectivity.vortex_link import vortex_link
+
+        before = vortex_link.last_reply_at
+        await asyncio.sleep(REPLY_TIMEOUT_SECONDS)
+
+        if vortex_link.last_reply_at > before:
+            return  # She answered. The server has driven the orb since.
+
+        logger.warning("River Song accepted the command but never replied.")
+        await self._set_state(VortexState.RESPONDING)
+        await self._say_locally(NO_REPLY_PHRASE)
+        await self._set_state(VortexState.IDLE)
+
+    async def _send_to_river_song(self, audio_data: bytes) -> bool:
+        """
+        Hand a captured command to River Song.
+
+        Sent over the uplink WebSocket as `audio_chunk` frames rather than
+        POSTed: the REST endpoint this used to call, /api/vortex/v1/command,
+        does not exist on the server and never has, so every spoken command
+        got a 404 and the user heard an error tone. Audio belongs on the
+        socket the unit already holds — one auth path, and River Song can push
+        her reply and the orb's envelope back down the same pipe.
+
+        Returns:
+            True if the audio reached River Song.
+        """
+        from connectivity.vortex_link import vortex_link
+
+        if not vortex_link.connected:
+            logger.warning("Command not sent — no uplink to River Song.")
+            return False
+        return await vortex_link.send_utterance(audio_data)
 
     async def _say_locally(self, phrase: str) -> None:
         """
