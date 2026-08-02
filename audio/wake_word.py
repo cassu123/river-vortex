@@ -2,111 +2,169 @@
 ================================================================================
 Project:     River Vortex — Smart Home Hub for the River Song AI Ecosystem
 File:        audio/wake_word.py
-Purpose:     Local wake word detection using the Porcupine engine (Picovoice).
-             Audio is processed entirely on-device. No audio data is transmitted
-             to any external service during wake word detection. Only after a
-             confirmed wake word event does the system begin streaming audio
-             to River Song for command processing.
+Purpose:     Local wake word detection using openWakeWord.
+
+             Replaces Porcupine, for two reasons. Porcupine needs a Picovoice
+             access key — a commercial licence dependency in the one part of
+             the system that is meant to prove nothing leaves the house — and
+             River Song already uses openWakeWord, so the two halves disagreed
+             about what "hey River" even means.
+
+             The wake word itself is chosen in the user's River Song profile
+             and arrives in the replica payload. This module just loads
+             whatever model it has been told to listen for.
 Author:      [Author Placeholder]
-Version:     1.0.0
-Date:        2026-05-25
+Version:     2.0.0
 License:     Internal Use Only — River Song AI / riversongai.com
 ================================================================================
 
 Privacy guarantee:
-    This module NEVER sends audio to any network endpoint. It reads raw PCM
-    frames from the microphone, passes them to the local Porcupine library,
-    and emits a callback when the wake word is detected. The audio frames
-    themselves are discarded after each Porcupine process() call.
-    Audio streaming to River Song is handled exclusively by AudioManager
-    after this module fires its on_wake_word callback.
+    This module NEVER sends audio anywhere. It reads raw PCM frames from the
+    microphone, scores them against a local model file, and emits a callback
+    on detection. The frames are discarded after each prediction, and the
+    callback carries no audio.
+
+    Model files are loaded from disk only. openWakeWord can download its
+    pretrained models on first use; that is deliberately disabled here,
+    because a unit that quietly fetches a model the first time someone speaks
+    to it is not a unit that keeps its promise.
 """
 
 import logging
+import os
 import threading
-from typing import Callable, Optional
+import time
+from typing import Callable, List, Optional
 
 from core.config import config
 from core.constants import (
-    AUDIO_CHUNK_SIZE,
     DEFAULT_WAKE_WORD,
-    PORCUPINE_MODEL_DIR,
     SAMPLE_RATE,
     WAKE_WORD_COOLDOWN_SECONDS,
-    WAKE_WORD_SENSITIVITY,
+    WAKE_WORD_FRAME_LENGTH,
+    WAKE_WORD_MODEL_DIR,
+    WAKE_WORD_THRESHOLD,
 )
 
 logger = logging.getLogger(__name__)
 
+#: File extensions openWakeWord can load, in preference order. ONNX first —
+#: it is the better-supported runtime on a Pi 4.
+MODEL_EXTENSIONS = (".onnx", ".tflite")
+
+
+def model_name_for(phrase: str) -> str:
+    """
+    Turn a spoken wake word into the model filename that implements it.
+
+    River Song stores the phrase as the user typed it — "Hey River", "sup
+    river" — and models are named on disk in snake case. Normalising here
+    means the profile can hold something human and the filesystem something
+    predictable.
+
+    Args:
+        phrase: The wake word as configured.
+
+    Returns:
+        A bare model name with no extension, e.g. "hey_river".
+    """
+    cleaned = "".join(c if c.isalnum() else " " for c in (phrase or "").lower())
+    return "_".join(cleaned.split()) or DEFAULT_WAKE_WORD
+
+
+def available_models(directory: Optional[str] = None) -> List[str]:
+    """
+    List the wake word models present on this unit.
+
+    Args:
+        directory: Where to look. Defaults to the configured model directory.
+
+    Returns:
+        Bare model names, without extension, sorted.
+    """
+    directory = directory or config.get("wake_word_model_dir", WAKE_WORD_MODEL_DIR)
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        return []
+    return sorted({
+        os.path.splitext(name)[0] for name in entries
+        if name.endswith(MODEL_EXTENSIONS)
+    })
+
 
 class WakeWordDetector:
     """
-    Local, on-device wake word detector powered by Porcupine (Picovoice).
+    Local, on-device wake word detector powered by openWakeWord.
 
-    Runs in a dedicated background thread. When the configured wake word
-    is detected, the registered callback is invoked on that thread.
+    Runs in a dedicated background thread. When the configured wake word is
+    detected, the registered callback is invoked on that thread.
 
     Privacy contract:
-        - Audio frames are processed locally by pvporcupine.
-        - No audio data is written to disk or sent over the network.
+        - Audio frames are scored locally against a model file on disk.
+        - No audio is written to disk or sent over the network.
         - The callback receives no audio data — only a detection event.
+        - No licence key, no account, no phone-home.
 
     Usage:
         detector = WakeWordDetector(on_wake_word=my_callback)
         detector.start()
-        # ... later ...
+        ...
         detector.stop()
     """
 
     def __init__(
         self,
         on_wake_word: Callable[[], None],
-        sensitivity: Optional[float] = None,
+        threshold: Optional[float] = None,
     ) -> None:
         """
         Initialize the wake word detector.
 
         Args:
-            on_wake_word: Callback invoked (no arguments) when the wake word
-                          is detected. Called from the detector thread.
-            sensitivity:  Detection sensitivity in [0.0, 1.0]. Higher values
-                          increase recall but also false-positive rate.
-                          Defaults to WAKE_WORD_SENSITIVITY from constants.
+            on_wake_word: Callback invoked (no arguments) on detection. Called
+                          from the detector thread.
+            threshold:    Confidence in [0.0, 1.0] above which a frame counts
+                          as a detection. HIGHER IS STRICTER — the inverse of
+                          Porcupine's old sensitivity dial, so a value carried
+                          over from the previous config will behave backwards.
         """
         self._on_wake_word: Callable[[], None] = on_wake_word
-        self._sensitivity: float = sensitivity or config.get(
-            "wake_word_sensitivity", WAKE_WORD_SENSITIVITY
+        self._threshold: float = threshold if threshold is not None else float(
+            config.get("wake_word_threshold", WAKE_WORD_THRESHOLD)
         )
-        self._wake_word: str = config.get("wake_word", DEFAULT_WAKE_WORD)
-        self._access_key: str = config.get("porcupine_access_key", "")
+        self._phrase: str = config.get("wake_word", DEFAULT_WAKE_WORD)
+        self._model_name: str = model_name_for(self._phrase)
+        self._model_dir: str = config.get("wake_word_model_dir", WAKE_WORD_MODEL_DIR)
 
-        self._porcupine = None          # pvporcupine.Porcupine instance
+        self._model = None              # openwakeword.model.Model
         self._audio_stream = None       # PyAudio stream
         self._thread: Optional[threading.Thread] = None
         self._running: bool = False
         self._last_detection_time: float = 0.0
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Lifecycle
+    # ─────────────────────────────────────────────────────────────────────────
+
     def start(self) -> None:
         """
-        Initialize Porcupine and start the detection thread.
+        Load the model and start the detection thread.
 
-        Raises:
-            RuntimeError: If Porcupine cannot be initialized (e.g., invalid
-                          access key or unsupported wake word).
+        A missing model is logged and leaves the unit without wake word
+        detection, rather than raising: the panel should still show the clock
+        and answer the touchscreen. The boot self-test reports the gap.
         """
         if self._running:
             logger.warning("WakeWordDetector is already running.")
             return
 
-        if not self._access_key:
-            logger.error(
-                "Porcupine access key is not configured. "
-                "Wake word detection is disabled. "
-                "Set PORCUPINE_ACCESS_KEY in your environment."
-            )
+        try:
+            self._load_model()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Wake word detection unavailable: %s", exc)
             return
 
-        self._init_porcupine()
         self._running = True
         self._thread = threading.Thread(
             target=self._detection_loop,
@@ -115,17 +173,12 @@ class WakeWordDetector:
         )
         self._thread.start()
         logger.info(
-            "Wake word detector started. Listening for '%s' (sensitivity=%.2f).",
-            self._wake_word,
-            self._sensitivity,
+            "Wake word detector started. Listening for '%s' (model=%s, threshold=%.2f).",
+            self._phrase, self._model_name, self._threshold,
         )
 
     def stop(self) -> None:
-        """
-        Stop the detection thread and release Porcupine resources.
-
-        Safe to call even if start() was never called or already stopped.
-        """
+        """Stop the detection thread and release resources."""
         self._running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3.0)
@@ -136,70 +189,94 @@ class WakeWordDetector:
         """Return True if the detection thread is active."""
         return self._running and (self._thread is not None) and self._thread.is_alive()
 
+    async def set_wake_word(self, phrase: str) -> bool:
+        """
+        Change the wake word this unit listens for.
+
+        River Song owns the choice, so this is called when the replica payload
+        brings a phrase different from the one currently loaded — a user
+        changing it in their profile should take effect without reflashing a
+        unit or rebooting it.
+
+        Args:
+            phrase: The new wake word.
+
+        Returns:
+            True if the unit is now listening for it. False means the model is
+            not on this unit, in which case the OLD wake word stays active —
+            better a unit that answers to the wrong phrase than one that
+            answers to nothing.
+        """
+        name = model_name_for(phrase)
+        if name == self._model_name:
+            return True
+
+        if not self._find_model_file(name):
+            logger.warning(
+                "River Song asked for wake word '%s' but no model '%s' is on "
+                "this unit; still listening for '%s'. Available: %s",
+                phrase, name, self._phrase, ", ".join(available_models(self._model_dir)) or "none",
+            )
+            return False
+
+        logger.info("Wake word changing from '%s' to '%s'.", self._phrase, phrase)
+        was_running = self.is_running()
+        self.stop()
+        self._phrase = phrase
+        self._model_name = name
+        if was_running:
+            self.start()
+        return True
+
     # ─────────────────────────────────────────────────────────────────────────
     # Private
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _init_porcupine(self) -> None:
-        """
-        Create the Porcupine instance for the configured wake word.
+    def _find_model_file(self, name: str) -> Optional[str]:
+        """Return the path to a model on disk, or None if it is not here."""
+        for extension in MODEL_EXTENSIONS:
+            path = os.path.join(self._model_dir, f"{name}{extension}")
+            if os.path.exists(path):
+                return path
+        return None
 
-        Uses the built-in keyword if the wake word matches a Porcupine
-        built-in; otherwise loads a custom .ppn model file from
-        PORCUPINE_MODEL_DIR.
+    def _load_model(self) -> None:
+        """
+        Load the wake word model from disk.
 
         Raises:
-            RuntimeError: On Porcupine initialization failure.
+            RuntimeError: If openWakeWord is missing or the model is not on
+                this unit.
         """
         try:
-            import pvporcupine  # type: ignore
-
-            # Porcupine built-in keywords (subset — check pvporcupine docs for full list)
-            builtin_keywords = pvporcupine.KEYWORDS
-
-            if self._wake_word.lower() in builtin_keywords:
-                self._porcupine = pvporcupine.create(
-                    access_key=self._access_key,
-                    keywords=[self._wake_word.lower()],
-                    sensitivities=[self._sensitivity],
-                )
-                logger.debug("Porcupine initialized with built-in keyword '%s'.", self._wake_word)
-            else:
-                # Custom wake word — look for a .ppn file
-                import os
-                model_path = os.path.join(PORCUPINE_MODEL_DIR, f"{self._wake_word}.ppn")
-                if not os.path.exists(model_path):
-                    raise RuntimeError(
-                        f"Custom wake word model not found: {model_path}. "
-                        f"Train a custom model at console.picovoice.ai and place "
-                        f"the .ppn file in {PORCUPINE_MODEL_DIR}."
-                    )
-                self._porcupine = pvporcupine.create(
-                    access_key=self._access_key,
-                    keyword_paths=[model_path],
-                    sensitivities=[self._sensitivity],
-                )
-                logger.debug("Porcupine initialized with custom model '%s'.", model_path)
-
-        except ImportError:
+            from openwakeword.model import Model  # type: ignore
+        except ImportError as exc:
             raise RuntimeError(
-                "pvporcupine is not installed. "
-                "Install it with: pip install pvporcupine"
+                "openwakeword is not installed. Install it with: "
+                "pip install openwakeword"
+            ) from exc
+
+        path = self._find_model_file(self._model_name)
+        if not path:
+            raise RuntimeError(
+                f"No wake word model '{self._model_name}' in {self._model_dir}. "
+                f"Available: {', '.join(available_models(self._model_dir)) or 'none'}. "
+                f"Models are baked into the unit image, not downloaded at runtime."
             )
-        except Exception as exc:
-            raise RuntimeError(f"Failed to initialize Porcupine: {exc}") from exc
+
+        framework = "onnx" if path.endswith(".onnx") else "tflite"
+        self._model = Model(wakeword_models=[path], inference_framework=framework)
+        logger.debug("Loaded wake word model %s (%s).", path, framework)
 
     def _detection_loop(self) -> None:
         """
-        Main detection loop. Reads PCM frames from the microphone and
-        passes them to Porcupine for wake word detection.
+        Read PCM frames from the microphone and score them locally.
 
-        Runs on the detector thread until stop() is called.
-        Privacy note: audio frames are never stored or transmitted here.
+        Runs on the detector thread until stop() is called. Audio frames are
+        never stored or transmitted here.
         """
-        import time
-
         try:
+            import numpy as np  # type: ignore
             import pyaudio  # type: ignore
 
             pa = pyaudio.PyAudio()
@@ -209,71 +286,62 @@ class WakeWordDetector:
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
-                frames_per_buffer=self._porcupine.frame_length,
+                frames_per_buffer=WAKE_WORD_FRAME_LENGTH,
             )
             if device_index >= 0:
                 stream_kwargs["input_device_index"] = device_index
 
             self._audio_stream = pa.open(**stream_kwargs)
-            logger.debug("Porcupine audio stream opened (frame_length=%d).",
-                         self._porcupine.frame_length)
+            logger.debug("Wake word audio stream opened (frame=%d samples).",
+                         WAKE_WORD_FRAME_LENGTH)
 
             while self._running:
                 try:
                     raw = self._audio_stream.read(
-                        self._porcupine.frame_length,
-                        exception_on_overflow=False,
+                        WAKE_WORD_FRAME_LENGTH, exception_on_overflow=False,
                     )
                 except OSError as exc:
                     logger.warning("Audio read error in wake word loop: %s", exc)
                     continue
 
-                # Unpack raw bytes to int16 PCM samples
-                import struct
-                pcm = struct.unpack_from(
-                    f"{self._porcupine.frame_length}h", raw
-                )
-
-                result = self._porcupine.process(pcm)
-                if result >= 0:
-                    now = time.monotonic()
-                    if now - self._last_detection_time >= WAKE_WORD_COOLDOWN_SECONDS:
-                        self._last_detection_time = now
-                        logger.info("Wake word '%s' detected.", self._wake_word)
-                        self._fire_callback()
+                frame = np.frombuffer(raw, dtype=np.int16)
+                scores = self._model.predict(frame)
+                if self._is_detection(scores):
+                    self._maybe_fire()
 
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Wake word detection loop crashed: %s", exc, exc_info=True)
         finally:
-            if self._audio_stream:
-                try:
-                    self._audio_stream.stop_stream()
-                    self._audio_stream.close()
-                except Exception:  # pylint: disable=broad-except
-                    pass
+            self._close_stream()
             logger.debug("Wake word detection loop exited.")
 
-    def _fire_callback(self) -> None:
+    def _is_detection(self, scores) -> bool:
         """
-        Invoke the on_wake_word callback safely.
+        Whether this frame's scores cross the threshold.
 
-        Exceptions raised by the callback are caught and logged so they
-        cannot crash the detection thread.
+        openWakeWord returns a dict keyed by model name. Only one model is
+        loaded, but the key is whatever it derived from the file path, so the
+        values are checked rather than looked up by name — a key that does not
+        match would otherwise silently never fire.
         """
+        try:
+            return any(float(score) >= self._threshold for score in scores.values())
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    def _maybe_fire(self) -> None:
+        """Fire the callback unless we are still inside the cooldown window."""
+        now = time.monotonic()
+        if now - self._last_detection_time < WAKE_WORD_COOLDOWN_SECONDS:
+            return
+        self._last_detection_time = now
+        logger.info("Wake word '%s' detected.", self._phrase)
         try:
             self._on_wake_word()
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Exception in on_wake_word callback: %s", exc, exc_info=True)
 
-    def _cleanup(self) -> None:
-        """Release Porcupine and PyAudio resources."""
-        if self._porcupine:
-            try:
-                self._porcupine.delete()
-            except Exception:  # pylint: disable=broad-except
-                pass
-            self._porcupine = None
-
+    def _close_stream(self) -> None:
         if self._audio_stream:
             try:
                 self._audio_stream.stop_stream()
@@ -281,3 +349,8 @@ class WakeWordDetector:
             except Exception:  # pylint: disable=broad-except
                 pass
             self._audio_stream = None
+
+    def _cleanup(self) -> None:
+        """Release the model and audio resources."""
+        self._model = None
+        self._close_stream()

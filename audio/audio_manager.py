@@ -4,7 +4,7 @@ Project:     River Vortex — Smart Home Hub for the River Song AI Ecosystem
 File:        audio/audio_manager.py
 Purpose:     Top-level audio subsystem coordinator. Owns the wake word detector,
              microphone, and speaker. Orchestrates the full voice command flow:
-               1. Wake word detected locally (Porcupine — no cloud)
+               1. Wake word detected locally (openWakeWord — no cloud)
                2. Play confirmation chime
                3. Stream audio to River Song API
                4. Receive TTS response
@@ -55,7 +55,7 @@ class AudioManager:
     Coordinates all audio I/O for River Vortex.
 
     Voice command flow (privacy-safe):
-        Mic (local) → Porcupine (local) → chime → stream to River Song → TTS response → Speaker
+        Mic (local) → openWakeWord (local) → chime → uplink to River Song → TTS → Speaker
 
     Audio is NEVER sent to River Song until the wake word is confirmed locally.
 
@@ -153,6 +153,14 @@ class AudioManager:
     def unmute_microphone(self) -> None:
         """Unmute the microphone."""
         self._microphone.unmute()
+
+    @property
+    def wake_word_detector(self) -> Optional[WakeWordDetector]:
+        """
+        The wake word detector — exposed so the uplink can retune it when
+        River Song reports the household has chosen a different phrase.
+        """
+        return self._wake_word_detector
 
     @property
     def microphone(self) -> Microphone:

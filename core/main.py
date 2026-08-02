@@ -410,9 +410,13 @@ class RiverVortex:
             logger.warning(
                 "HA_TOKEN is not set. Home Assistant integration will be disabled."
             )
-        if not config.get("porcupine_access_key"):
+        from audio.wake_word import available_models, model_name_for
+        wanted = model_name_for(config.get("wake_word", ""))
+        if wanted not in available_models():
             logger.warning(
-                "PORCUPINE_ACCESS_KEY is not set. Wake word detection will be disabled."
+                "No wake word model '%s' on this unit — voice activation is "
+                "disabled until one is installed. Available: %s",
+                wanted, ", ".join(available_models()) or "none",
             )
         if not config.get("river_song_api_key"):
             logger.warning(
@@ -640,6 +644,8 @@ class RiverVortex:
                 surface_store=surface_store,
                 media_player=self._media_player,
                 audio_manager=self._audio_manager,
+                wake_word=(self._audio_manager.wake_word_detector
+                           if self._audio_manager else None),
             )
             await vortex_link.start()
             logger.info("[OK] River Song uplink started.")

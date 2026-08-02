@@ -329,8 +329,6 @@ duplicated `home_assistant/` package (see Not Started below).
 
 ## Not Started
 
-- **openWakeWord** — River Song already uses it and owns the wake word choice.
-  Vortex still ships Porcupine, so the two do not agree on "hey River".
 - **The duplicated `home_assistant/` package** — 824 lines River Song already
   owns. Should be called through, not reimplemented.
 - **SoftAP provisioning** — changing WiFi after a house move without

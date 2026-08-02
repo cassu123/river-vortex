@@ -113,11 +113,21 @@ ANNOUNCEMENT_MAX_MESSAGE_LENGTH: int = 500
 # Audio — Microphone & Wake Word
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_WAKE_WORD: str = "vortex"
-WAKE_WORD_SENSITIVITY: float = 0.5          # 0.0 (strict) → 1.0 (permissive)
+# The wake word is chosen in the user's River Song profile — "hey river",
+# "sup river", whatever they picked — and arrives here in the replica payload.
+# This is only the fallback for a unit that has never synced.
+DEFAULT_WAKE_WORD: str = "hey_jarvis"
+
+# Score above which a detection counts, 0..1. openWakeWord returns a
+# confidence per frame rather than Porcupine's sensitivity dial, so higher is
+# STRICTER here — the opposite of the old setting.
+WAKE_WORD_THRESHOLD: float = 0.5
 WAKE_WORD_COOLDOWN_SECONDS: float = 2.0     # Minimum gap between detections
 
-SAMPLE_RATE: int = 16000                    # Hz — required by Porcupine
+# openWakeWord consumes exactly 1280 samples (80ms at 16kHz) per prediction.
+WAKE_WORD_FRAME_LENGTH: int = 1280
+
+SAMPLE_RATE: int = 16000                    # Hz — required by openWakeWord
 AUDIO_CHANNELS: int = 1                     # Mono
 AUDIO_CHUNK_SIZE: int = 512                 # Frames per buffer read
 AUDIO_FORMAT_BITS: int = 16                 # PCM 16-bit
@@ -351,6 +361,10 @@ CORS_ALLOWED_ORIGINS: list = [
 
 PROFILE_PATH: str = "units/vortex_profile.json"
 ENV_FILE_PATH: str = ".env"
-PORCUPINE_MODEL_DIR: str = "audio/models"
+# Wake word models live on the unit and are baked into the image. Deliberately
+# NOT downloaded at runtime: openWakeWord can fetch its pretrained models on
+# first use, and a device whose whole promise is "nothing leaves the house"
+# should not reach out to a model host the first time someone speaks to it.
+WAKE_WORD_MODEL_DIR: str = "audio/models"
 FRONTEND_BUILD_DIR: str = "frontend/dist"
 ROUTINE_PRESETS_PATH: str = "units/routine_presets.json"

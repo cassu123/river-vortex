@@ -92,16 +92,19 @@ class VortexLink:
     """
 
     def __init__(self, surface_store: Any = None, media_player: Any = None,
-                 audio_manager: Any = None) -> None:
+                 audio_manager: Any = None, wake_word: Any = None) -> None:
         """
         Args:
             surface_store: core.surfaces.SurfaceStore — receives pushed cards.
             media_player:  audio.media_player.MediaPlayer — receives playback.
             audio_manager: audio.audio_manager.AudioManager — plays TTS audio.
+            wake_word:     audio.wake_word.WakeWordDetector — retuned when
+                           River Song reports a new household wake word.
         """
         self._surfaces = surface_store
         self._media = media_player
         self._audio = audio_manager
+        self._wake_word = wake_word
 
         self._socket = None
         self._task: Optional[asyncio.Task] = None
@@ -112,7 +115,7 @@ class VortexLink:
         self._last_reply_at = 0.0
 
     def attach(self, surface_store: Any = None, media_player: Any = None,
-               audio_manager: Any = None) -> None:
+               audio_manager: Any = None, wake_word: Any = None) -> None:
         """
         Wire the subsystems pushed frames are handed to.
 
@@ -128,6 +131,8 @@ class VortexLink:
             self._media = media_player
         if audio_manager is not None:
             self._audio = audio_manager
+        if wake_word is not None:
+            self._wake_word = wake_word
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -396,7 +401,9 @@ class VortexLink:
             await self._on_audio(frame)
         elif kind == "presence":
             await self._on_presence(frame)
-        elif kind in ("amplitude", "navigate", "replica",
+        elif kind == "replica":
+            await self._on_replica(frame)
+        elif kind in ("amplitude", "navigate",
                       "devices_update", "cameras_update", "notifications_update"):
             # Straight through to the browser. These are exactly the message
             # types App.jsx already handles, so no translation is wanted —
@@ -439,6 +446,24 @@ class VortexLink:
             await voice.speak(caption, interrupt=False, prefer_local=True)
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug("Could not speak presence caption: %s", exc)
+
+    async def _on_replica(self, frame: Dict[str, Any]) -> None:
+        """
+        Take a state snapshot from River Song.
+
+        Relayed to the screen unchanged, and one field is acted on here: the
+        household's wake word. The user picks it in their River Song profile —
+        "hey river", "sup river", whatever they chose — and changing it there
+        should reach every unit without anyone reflashing a Pi.
+        """
+        await ws_hub.broadcast(frame)
+
+        phrase = frame.get("wake_word")
+        if phrase and self._wake_word is not None:
+            try:
+                await self._wake_word.set_wake_word(str(phrase))
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning("Could not apply wake word '%s': %s", phrase, exc)
 
     async def _on_surface(self, frame: Dict[str, Any]) -> None:
         """

@@ -27,7 +27,8 @@ from core.constants import (
     BACKEND_HOST,
     BACKEND_PORT,
     DEFAULT_WAKE_WORD,
-    WAKE_WORD_SENSITIVITY,
+    WAKE_WORD_MODEL_DIR,
+    WAKE_WORD_THRESHOLD,
     AMBIENT_MODE_TIMEOUT_SECONDS,
     AMBIENT_PHOTO_DIR,
     AMBIENT_PHOTO_INTERVAL_SECONDS,
@@ -307,9 +308,13 @@ class Config:
             "ha_reconnect_interval": HA_RECONNECT_INTERVAL_SECONDS,
 
             # Audio
+            # The wake word is chosen in the user's River Song profile and
+            # arrives in the replica payload; this is only the pre-sync
+            # fallback. Higher threshold = stricter, the inverse of the old
+            # Porcupine sensitivity dial.
             "wake_word": DEFAULT_WAKE_WORD,
-            "wake_word_sensitivity": WAKE_WORD_SENSITIVITY,
-            "porcupine_access_key": "",
+            "wake_word_threshold": WAKE_WORD_THRESHOLD,
+            "wake_word_model_dir": WAKE_WORD_MODEL_DIR,
             "audio_device_index": -1,
             "volume": 70,
             "mic_enabled": True,
@@ -476,7 +481,7 @@ class Config:
             "HA_URL":               "ha_url",
             "HA_TOKEN":             "ha_token",
             "VORTEX_WAKE_WORD":     "wake_word",
-            "PORCUPINE_ACCESS_KEY": "porcupine_access_key",
+            "VORTEX_WAKE_THRESHOLD": "wake_word_threshold",
             "VORTEX_VOLUME":        "volume",
             "VORTEX_LOG_LEVEL":     "log_level",
             "VORTEX_LOG_DIR":       "log_dir",
