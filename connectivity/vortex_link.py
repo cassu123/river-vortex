@@ -394,7 +394,9 @@ class VortexLink:
             await self._on_media(frame)
         elif kind == "audio":
             await self._on_audio(frame)
-        elif kind in ("presence", "amplitude", "navigate", "replica",
+        elif kind == "presence":
+            await self._on_presence(frame)
+        elif kind in ("amplitude", "navigate", "replica",
                       "devices_update", "cameras_update", "notifications_update"):
             # Straight through to the browser. These are exactly the message
             # types App.jsx already handles, so no translation is wanted —
@@ -404,6 +406,39 @@ class VortexLink:
             pass
         else:
             logger.debug("Uplink ignored frame type '%s'.", kind)
+
+    async def _on_presence(self, frame: Dict[str, Any]) -> None:
+        """
+        Relay River's state to the screen — and say it aloud when there is no
+        screen to relay it to.
+
+        River Song reports some failures purely as presence: an utterance over
+        its length limit comes back as state `error` with a caption, and
+        nothing else. On a Hub that lands on the orb and reads fine. On a
+        screenless Mini it lands nowhere at all — no browser, no orb — so the
+        user gets total silence and no idea why.
+
+        Only error captions are spoken. Narrating every state change would
+        make a Mini unbearable, but a failure that goes unmentioned is the
+        thing that makes a unit feel broken.
+        """
+        await ws_hub.broadcast(frame)
+
+        data = frame.get("data") or {}
+        if str(data.get("state") or "") != "error":
+            return
+        caption = str(data.get("caption") or "").strip()
+        if not caption:
+            return
+
+        try:
+            from core.presenter import presenter
+            if presenter.has_screen:
+                return
+            from core.voice import voice
+            await voice.speak(caption, interrupt=False, prefer_local=True)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.debug("Could not speak presence caption: %s", exc)
 
     async def _on_surface(self, frame: Dict[str, Any]) -> None:
         """

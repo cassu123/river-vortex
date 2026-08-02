@@ -264,6 +264,55 @@ class TestReplyTracking(LinkTestCase):
         self.assertEqual(self.link.last_reply_at, 0.0)
 
 
+class TestPresenceOnAScreenlessUnit(LinkTestCase):
+    """
+    River Song reports some failures as presence and nothing else.
+
+    An over-long utterance comes back as state `error` with a caption. On a
+    Hub that lands on the orb. On a Mini it lands nowhere — no browser, no
+    orb — so it has to be spoken or the user gets silence and no explanation.
+    """
+
+    def _dispatch_error(self, has_screen, caption="Too long"):
+        speak = AsyncMock()
+        with patch("core.presenter.presenter") as presenter, \
+             patch("core.voice.voice.speak", speak):
+            presenter.has_screen = has_screen
+            run(self.link._dispatch({
+                "type": "presence",
+                "data": {"state": "error", "caption": caption},
+            }))
+        return speak
+
+    def test_a_screenless_unit_speaks_the_failure(self):
+        speak = self._dispatch_error(has_screen=False)
+        speak.assert_awaited_once()
+        self.assertEqual(speak.await_args.args[0], "Too long")
+
+    def test_a_screened_unit_stays_quiet_and_shows_it_instead(self):
+        self._dispatch_error(has_screen=True).assert_not_awaited()
+
+    def test_ordinary_states_are_never_narrated(self):
+        """Speaking every transition would make a Mini unbearable."""
+        speak = AsyncMock()
+        with patch("core.presenter.presenter") as presenter, \
+             patch("core.voice.voice.speak", speak):
+            presenter.has_screen = False
+            for state in ("listening", "thinking", "speaking", "idle"):
+                run(self.link._dispatch({"type": "presence",
+                                         "data": {"state": state,
+                                                  "caption": "working"}}))
+        speak.assert_not_awaited()
+
+    def test_an_error_with_no_caption_says_nothing(self):
+        """There is nothing useful to say, and inventing wording would lie."""
+        self._dispatch_error(has_screen=False, caption="").assert_not_awaited()
+
+    def test_the_frame_still_reaches_the_screen_either_way(self):
+        self._dispatch_error(has_screen=False)
+        self.assertIn("presence", self._relayed())
+
+
 class TestRelayedFrames(LinkTestCase):
     """
     Frames the browser already understands go straight through.
