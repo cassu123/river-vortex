@@ -34,7 +34,7 @@ import logging
 import os
 import threading
 import time
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 from core.config import config
 from core.constants import (
@@ -188,6 +188,55 @@ class WakeWordDetector:
     def is_running(self) -> bool:
         """Return True if the detection thread is active."""
         return self._running and (self._thread is not None) and self._thread.is_alive()
+
+    @property
+    def threshold(self) -> float:
+        """Confidence a frame must reach to count as a detection."""
+        return self._threshold
+
+    def set_threshold(self, value: Any) -> bool:
+        """
+        Retune how eagerly this unit wakes.
+
+        This is the dial that actually gets touched in a real house. A kitchen
+        panel beside a dishwasher wakes at every clatter; a bedroom one across
+        the room mishears nothing but also hears nothing. It is per unit for
+        exactly that reason.
+
+        Takes effect immediately — the detection loop reads the threshold on
+        every frame, so there is nothing to restart.
+
+        Args:
+            value: New threshold. Higher is stricter (fewer false wakes,
+                more missed ones). Values outside 0..1 are refused rather
+                than clamped: 5 almost certainly means someone thought this
+                was the old sensitivity scale, and silently turning that into
+                1.0 would leave a unit that never wakes and no clue why.
+
+        Returns:
+            True if the threshold changed.
+        """
+        try:
+            threshold = float(value)
+        except (TypeError, ValueError):
+            logger.warning("Ignoring non-numeric wake word threshold %r.", value)
+            return False
+
+        if not 0.0 <= threshold <= 1.0:
+            logger.warning(
+                "Ignoring wake word threshold %.2f — it must be between 0 and 1. "
+                "Note this is NOT the old Porcupine sensitivity scale; higher "
+                "is now stricter.", threshold,
+            )
+            return False
+
+        if threshold == self._threshold:
+            return False
+
+        logger.info("Wake word threshold changed from %.2f to %.2f.",
+                    self._threshold, threshold)
+        self._threshold = threshold
+        return True
 
     async def set_wake_word(self, phrase: str) -> bool:
         """

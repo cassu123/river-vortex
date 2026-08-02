@@ -313,6 +313,61 @@ class TestPresenceOnAScreenlessUnit(LinkTestCase):
         self.assertIn("presence", self._relayed())
 
 
+class TestReplicaRetunesTheWakeWord(LinkTestCase):
+    """
+    The wake word is set in River Song, not on the unit.
+
+    There is no settings screen on a Vortex panel, so if these two fields do
+    not arrive over the replica the only way to change them is SSHing into a
+    Pi and editing JSON — which is exactly what the product promises you never
+    have to do.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.detector = MagicMock()
+        self.detector.set_wake_word = AsyncMock(return_value=True)
+        self.detector.set_threshold = MagicMock(return_value=True)
+        self.link.attach(wake_word=self.detector)
+
+    def test_a_new_phrase_retunes_the_detector(self):
+        run(self.link._dispatch({"type": "replica", "wake_word": "hey river"}))
+        self.detector.set_wake_word.assert_awaited_once_with("hey river")
+
+    def test_the_threshold_arrives_in_the_units_own_settings(self):
+        """Per unit, not per household — rooms differ."""
+        run(self.link._dispatch({
+            "type": "replica", "settings": {"wake_word_threshold": 0.8},
+        }))
+        self.detector.set_threshold.assert_called_once_with(0.8)
+
+    def test_a_top_level_threshold_is_also_accepted(self):
+        """Tolerated so a flatter payload shape does not silently do nothing."""
+        run(self.link._dispatch({"type": "replica", "wake_word_threshold": 0.7}))
+        self.detector.set_threshold.assert_called_once_with(0.7)
+
+    def test_a_replica_without_either_field_changes_nothing(self):
+        run(self.link._dispatch({"type": "replica", "devices": []}))
+        self.detector.set_wake_word.assert_not_awaited()
+        self.detector.set_threshold.assert_not_called()
+
+    def test_the_replica_still_reaches_the_screen(self):
+        run(self.link._dispatch({"type": "replica", "wake_word": "hey river"}))
+        self.assertIn("replica", self._relayed())
+
+    def test_a_detector_that_rejects_the_phrase_does_not_break_the_uplink(self):
+        self.detector.set_wake_word = AsyncMock(side_effect=RuntimeError("no model"))
+        run(self.link._dispatch({"type": "replica", "wake_word": "hey nonsense"}))
+        self.assertIn("replica", self._relayed())
+
+    def test_a_unit_with_no_detector_ignores_both(self):
+        """A Mini with a broken mic still has to take the rest of the replica."""
+        link = VortexLink()
+        with patch("connectivity.vortex_link.ws_hub.broadcast", new_callable=AsyncMock):
+            run(link._dispatch({"type": "replica", "wake_word": "hey river",
+                                "settings": {"wake_word_threshold": 0.9}}))
+
+
 class TestRelayedFrames(LinkTestCase):
     """
     Frames the browser already understands go straight through.

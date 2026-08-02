@@ -157,6 +157,60 @@ class TestWakeWordDetector(unittest.TestCase):
             self.assertFalse(detector._is_detection(junk))
 
 
+class TestWakeWordThreshold(unittest.TestCase):
+    """
+    Retuning how eagerly a unit wakes.
+
+    This is the dial that actually gets touched in a real house — a kitchen
+    panel by a dishwasher wakes at every clatter — so it has to be changeable
+    without SSHing into a Pi, and it has to take effect without a restart.
+    """
+
+    def _detector(self, **settings):
+        from audio.wake_word import WakeWordDetector
+        base = {"wake_word": "hey jarvis", "wake_word_threshold": 0.5,
+                "wake_word_model_dir": "audio/models", "audio_device_index": -1}
+        base.update(settings)
+        patcher = patch("audio.wake_word.config")
+        cfg = patcher.start()
+        self.addCleanup(patcher.stop)
+        cfg.get.side_effect = lambda key, default=None: base.get(key, default)
+        return WakeWordDetector(on_wake_word=MagicMock())
+
+    def test_a_new_threshold_applies_immediately(self):
+        """The loop reads it per frame, so nothing needs restarting."""
+        detector = self._detector()
+        self.assertTrue(detector.set_threshold(0.8))
+        self.assertEqual(detector.threshold, 0.8)
+        self.assertFalse(detector._is_detection({"m": 0.7}))
+        self.assertTrue(detector._is_detection({"m": 0.85}))
+
+    def test_setting_the_same_value_reports_no_change(self):
+        self.assertFalse(self._detector().set_threshold(0.5))
+
+    def test_a_value_off_the_scale_is_refused_not_clamped(self):
+        """
+        5 almost certainly means someone thought this was the old sensitivity
+        scale. Silently clamping to 1.0 leaves a unit that never wakes and no
+        clue why; refusing it leaves the old value and a log line.
+        """
+        detector = self._detector()
+        for bad in (5, -1, 1.5):
+            self.assertFalse(detector.set_threshold(bad))
+        self.assertEqual(detector.threshold, 0.5)
+
+    def test_the_bounds_themselves_are_accepted(self):
+        detector = self._detector()
+        self.assertTrue(detector.set_threshold(0.0))
+        self.assertTrue(detector.set_threshold(1.0))
+
+    def test_junk_is_ignored_rather_than_crashing_the_unit(self):
+        detector = self._detector()
+        for junk in (None, "high", [], {}):
+            self.assertFalse(detector.set_threshold(junk))
+        self.assertEqual(detector.threshold, 0.5)
+
+
 class TestWakeWordNaming(unittest.TestCase):
     """The phrase lives in River Song; the filename lives on the unit."""
 

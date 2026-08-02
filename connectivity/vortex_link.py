@@ -451,19 +451,34 @@ class VortexLink:
         """
         Take a state snapshot from River Song.
 
-        Relayed to the screen unchanged, and one field is acted on here: the
-        household's wake word. The user picks it in their River Song profile —
-        "hey river", "sup river", whatever they chose — and changing it there
-        should reach every unit without anyone reflashing a Pi.
+        Relayed to the screen unchanged, and two fields are acted on here.
+
+        The wake word phrase is a household choice — "hey river", "sup river",
+        whatever the user picked — so changing it in their profile reaches
+        every unit without anyone reflashing a Pi.
+
+        The detection threshold is PER UNIT, and deliberately so: a kitchen
+        panel next to a dishwasher needs a different setting from a bedroom
+        one, and the whole point of tuning it is that some rooms are harder
+        than others. It arrives in the unit's own settings block.
         """
         await ws_hub.broadcast(frame)
 
+        if self._wake_word is None:
+            return
+
         phrase = frame.get("wake_word")
-        if phrase and self._wake_word is not None:
+        if phrase:
             try:
                 await self._wake_word.set_wake_word(str(phrase))
             except Exception as exc:  # pylint: disable=broad-except
                 logger.warning("Could not apply wake word '%s': %s", phrase, exc)
+
+        settings = frame.get("settings") or {}
+        threshold = settings.get("wake_word_threshold",
+                                 frame.get("wake_word_threshold"))
+        if threshold is not None:
+            self._wake_word.set_threshold(threshold)
 
     async def _on_surface(self, frame: Dict[str, Any]) -> None:
         """
