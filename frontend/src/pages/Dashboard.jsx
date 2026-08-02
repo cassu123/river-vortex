@@ -114,6 +114,9 @@ export default function Dashboard() {
         <NavButton icon="💡" label="Devices"   page="devices"   active={page === 'devices'}   onClick={navigate} />
         <NavButton icon="📷" label="Cameras"   page="cameras"   active={page === 'cameras'}   onClick={navigate} />
         <NavButton icon="📝" label="Lists"     page="lists"     active={page === 'lists'}     onClick={navigate} />
+        {/* This box's own knobs — volume, brightness, mic mute. Reachable
+            with River Song unreachable, which is when you most want them. */}
+        <NavButton icon="⚙️" label="Settings"  page="settings"  active={page === 'settings'}  onClick={navigate} />
       </nav>
     </div>
   );

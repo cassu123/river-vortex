@@ -14,6 +14,7 @@ import './presence/orb.css';
 import './components/photoBackdrop.css';
 import './pages/boot.css';
 import './surfaces/surfaces.css';
+import './pages/settings.css';
 
 const container = document.getElementById('root');
 

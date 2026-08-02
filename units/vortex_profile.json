@@ -20,10 +20,10 @@
     "platform": "raspberry-pi-5"
   },
   "audio": {
-    "wake_word": "vortex",
-    "wake_word_sensitivity": 0.5,
+    "wake_word": "hey_jarvis",
     "volume": 70,
-    "audio_device_index": -1
+    "audio_device_index": -1,
+    "wake_word_threshold": 0.5
   },
   "display": {
     "screen_brightness": 80,

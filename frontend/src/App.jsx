@@ -24,6 +24,7 @@ import Setup from './pages/Setup';
 import Screensaver from './pages/Screensaver';
 import NowPlaying from './pages/NowPlaying';
 import Boot from './pages/Boot';
+import Settings from './pages/Settings';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import IntercomBanner from './components/IntercomBanner';
 import ReminderBanner from './components/ReminderBanner';
@@ -355,6 +356,7 @@ function PageRouter({ page, diagnostics }) {
     case 'off':       return <div style={styles.screenOff} />;
     case 'routine':   return <Routine />;
     case 'lists':     return <Lists />;
+    case 'settings':  return <Settings />;
     case 'ambient':
     default:          return <Ambient />;
   }

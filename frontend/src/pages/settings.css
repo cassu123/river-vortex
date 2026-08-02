@@ -1,0 +1,229 @@
+/*
+ * ============================================================================
+ * Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+ * File:     frontend/src/pages/settings.css
+ * Purpose:  Styles for the on-device settings screen.
+ *
+ *           Sized for a finger on a wall panel, often reached for in the dark
+ *           and often in a hurry — muting a microphone is not a considered
+ *           decision. Nothing here is smaller than 48px.
+ *
+ *           Same Pi 4 contract as the rest: transform and opacity only.
+ * ============================================================================
+ */
+
+.settings {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 20px 24px 24px;
+  overflow-y: auto;
+  background: linear-gradient(160deg, #08080f 0%, #0d0d1a 100%);
+  color: #e8e8f0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.settings__empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: rgba(232, 232, 240, 0.4);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.settings__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.settings__back {
+  min-height: 48px;
+  padding: 0 18px 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e8e8f0;
+  font-size: 16px;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.settings__back:active { transform: scale(0.97); }
+
+.settings__title {
+  font-size: 20px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__room { color: rgba(232, 232, 240, 0.45); font-weight: 400; }
+
+.settings__error {
+  margin-bottom: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(204, 85, 68, 0.16);
+  border: 1px solid rgba(204, 85, 68, 0.4);
+  color: #f0a89c;
+  font-size: 15px;
+}
+
+/* ── Settings list ──────────────────────────────────────────────────────── */
+
+.settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.setting {
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.setting--off { opacity: 0.4; }
+
+.setting__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 32px;
+}
+
+.setting__label { font-size: 17px; font-weight: 500; }
+
+.setting__value {
+  font-size: 17px;
+  color: rgba(232, 232, 240, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.setting__hint {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(232, 232, 240, 0.42);
+}
+
+/* ── Slider ─────────────────────────────────────────────────────────────── */
+/* A wall panel is tapped with a thumb, sometimes a wet one. The track is
+   deliberately tall and the handle deliberately oversized. */
+
+.setting__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 40px;
+  margin-top: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.setting__slider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.setting__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  margin-top: -12px;
+  border-radius: 50%;
+  background: #78c8e6;
+  border: none;
+}
+
+.setting__slider::-moz-range-track {
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.setting__slider::-moz-range-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #78c8e6;
+  border: none;
+}
+
+.setting__slider:disabled::-webkit-slider-thumb { background: rgba(255, 255, 255, 0.2); }
+
+/* ── Toggle ─────────────────────────────────────────────────────────────── */
+
+.toggle {
+  position: relative;
+  width: 76px;
+  height: 44px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.toggle__knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toggle--on { background: rgba(120, 200, 230, 0.22); border-color: rgba(120, 200, 230, 0.5); }
+.toggle--on .toggle__knob { transform: translateX(32px); background: #78c8e6; }
+
+/* Mute is a safety state, not a preference — it reads as loud as it acts. */
+.toggle--danger { background: rgba(204, 85, 68, 0.22); border-color: rgba(204, 85, 68, 0.55); }
+.toggle--danger .toggle__knob { background: #f0a89c; }
+
+.toggle:disabled { opacity: 0.4; cursor: default; }
+
+/* ── About ──────────────────────────────────────────────────────────────── */
+
+.settings__about {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings__fact {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  color: rgba(232, 232, 240, 0.4);
+}
+
+.settings__fact .ok  { color: #78c8e6; }
+.settings__fact .bad { color: #d4a040; }
+
+/* ── Small panels ───────────────────────────────────────────────────────── */
+
+@media (max-height: 600px) {
+  .settings { padding: 14px 18px 18px; }
+  .settings__title { font-size: 17px; }
+  .setting { padding: 12px 14px; border-radius: 13px; }
+  .setting__label, .setting__value { font-size: 15px; }
+  .setting__slider { height: 34px; margin-top: 6px; }
+  .settings__about { margin-top: 16px; }
+}

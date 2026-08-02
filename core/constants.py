@@ -51,6 +51,10 @@ RIVER_SONG_MEDIA_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/me
 RIVER_SONG_DIAGNOSTICS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/diagnostics"
 RIVER_SONG_SURFACES_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/surfaces"
 
+# Device settings — this box's own knobs. Volume, brightness, mic mute.
+# Not per user, and deliberately usable with River Song unreachable.
+RIVER_SONG_SETTINGS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/settings"
+
 # The persistent uplink. Everything River Song pushes — cards, media, presence,
 # the orb's amplitude, device and camera lists — arrives over this one socket.
 # The unit dials out; nothing ever connects inbound to a Pi.

@@ -28,8 +28,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from core import (announce_api, diagnostics_api, intercom_api, lists_api,
-                  media_api, photos_api, routines_api, setup_api,
-                  surfaces_api, timers_api)
+                  media_api, photos_api, routines_api, settings_api,
+                  setup_api, surfaces_api, timers_api)
 from core.announce import AnnouncementSession
 from core.config import Config, ConfigError, config
 from core.constants import (
@@ -188,6 +188,11 @@ def create_app(
     # it does not decide (see core/surfaces.py).
     surfaces_api.set_surface_store(surface_store)
     app.include_router(surfaces_api.router)
+
+    # This box's own settings — volume, brightness, mic mute, wake sensitivity.
+    # Subsystems are wired by the orchestrator once they exist; unwired ones
+    # simply report themselves unavailable (see core/settings_api.py).
+    app.include_router(settings_api.router)
 
     # Boot self-test results — the boot screen reads these (core/diagnostics.py).
     #
@@ -649,6 +654,17 @@ class RiverVortex:
             )
             await vortex_link.start()
             logger.info("[OK] River Song uplink started.")
+
+            # The on-device settings screen drives these directly. It works
+            # with River Song unreachable, which is the whole reason it is on
+            # the device rather than only in the app.
+            settings_api.set_subsystems(
+                audio_manager=self._audio_manager,
+                screen_manager=self._screen_manager,
+                privacy_manager=self._privacy_manager,
+                wake_word=(self._audio_manager.wake_word_detector
+                           if self._audio_manager else None),
+            )
         except Exception as exc:
             logger.error("River Song uplink failed to start: %s", exc)
 
