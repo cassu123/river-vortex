@@ -41,8 +41,14 @@ import {
 const initialState = {
   /** Current display page: 'loading' | 'setup' | 'ambient' | 'dashboard' | 'devices' | 'cameras' */
   page: 'boot',
-  /** WebSocket connection status */
+  /** WebSocket connection status — browser to this unit's own backend */
   wsConnected: false,
+  /**
+   * Whether this unit can reach River Song. A different question from
+   * wsConnected: the panel can be working perfectly and still be cut off from
+   * the server that decides everything, which is what the user needs told.
+   */
+  uplinkConnected: false,
   /** Latest ambient data from backend */
   ambient: { time: '', date: '', weather: {}, notifications: [] },
   /** All HA device states */
@@ -138,6 +144,8 @@ function appReducer(state, action) {
       return { ...state, media: action.payload };
     case 'SET_DIAGNOSTICS':
       return { ...state, diagnostics: action.payload };
+    case 'SET_UPLINK':
+      return { ...state, uplinkConnected: action.payload };
     case 'SET_SURFACES':
       return {
         ...state,
@@ -258,6 +266,24 @@ function handleMessage(msg, dispatch, amplitudeRef) {
       break;
     case 'surfaces_update':
       dispatch({ type: 'SET_SURFACES', payload: msg.surfaces });
+      break;
+    // Whether this unit can currently reach River Song. Distinct from
+    // wsConnected, which is only the browser's link to its own backend — a
+    // unit can be perfectly healthy locally and still have lost the server.
+    case 'uplink':
+      dispatch({ type: 'SET_UPLINK', payload: Boolean(msg.connected) });
+      break;
+    // A replica snapshot carries several feeds at once; unpack the ones the
+    // UI renders. Sent on connect and as deltas afterwards.
+    case 'replica':
+      if (msg.devices) dispatch({ type: 'UPDATE_DEVICES', payload: msg.devices });
+      if (msg.cameras) dispatch({ type: 'UPDATE_CAMERAS', payload: msg.cameras });
+      if (msg.notifications) {
+        dispatch({ type: 'SET_NOTIFICATIONS', payload: msg.notifications });
+      }
+      if (msg.weather) {
+        dispatch({ type: 'UPDATE_AMBIENT', payload: { weather: msg.weather } });
+      }
       break;
     case 'media_update':
       dispatch({ type: 'SET_MEDIA', payload: msg.media });

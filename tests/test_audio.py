@@ -34,67 +34,210 @@ def run_async(coro):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestWakeWordDetector(unittest.TestCase):
-    """Tests for audio/wake_word.py — WakeWordDetector."""
+    """
+    Tests for audio/wake_word.py — WakeWordDetector, on openWakeWord.
 
-    def test_does_not_start_without_access_key(self):
-        """Detector should not start if porcupine_access_key is empty."""
-        with patch("core.config.config") as mock_config:
-            mock_config.get.side_effect = lambda key, default=None: {
-                "porcupine_access_key": "",
-                "wake_word": "vortex",
-                "wake_word_sensitivity": 0.5,
-                "audio_device_index": -1,
-            }.get(key, default)
+    The Porcupine engine was replaced because it required a Picovoice access
+    key: a commercial licence dependency in the one part of the system whose
+    whole claim is that nothing leaves the house. These assert the properties
+    that made the swap worth doing.
+    """
 
-            from audio.wake_word import WakeWordDetector
-            callback = MagicMock()
-            detector = WakeWordDetector(on_wake_word=callback)
-            detector.start()
+    def _detector(self, callback=None, **settings):
+        from audio.wake_word import WakeWordDetector
+        base = {"wake_word": "hey jarvis", "wake_word_threshold": 0.5,
+                "wake_word_model_dir": "audio/models", "audio_device_index": -1}
+        base.update(settings)
+        patcher = patch("audio.wake_word.config")
+        cfg = patcher.start()
+        self.addCleanup(patcher.stop)
+        cfg.get.side_effect = lambda key, default=None: base.get(key, default)
+        return WakeWordDetector(on_wake_word=callback or MagicMock())
 
-            self.assertFalse(detector.is_running())
-            callback.assert_not_called()
+    def test_the_module_no_longer_depends_on_porcupine(self):
+        """
+        The point of the swap: no licence key, no account, no vendor SDK.
+
+        Checks the imports rather than the file text, because the docstring
+        legitimately explains why Porcupine was replaced and that prose should
+        not be what keeps this test passing.
+        """
+        import ast
+        import audio.wake_word as module
+
+        tree = ast.parse(open(module.__file__).read())
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module.split(".")[0])
+
+        self.assertNotIn("pvporcupine", imported)
+        self.assertIn("openwakeword", imported)
+
+    def test_no_access_key_is_read_from_config(self):
+        """A licence key read at startup is the dependency being removed."""
+        import ast
+        import audio.wake_word as module
+
+        tree = ast.parse(open(module.__file__).read())
+        keys = {n.value for n in ast.walk(tree)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        self.assertFalse([k for k in keys if "access_key" in k],
+                         "wake word detection still reads a licence key")
+
+    def test_porcupine_is_gone_from_requirements(self):
+        """Leaving it installed leaves the dependency, however unused."""
+        requirements = open("requirements.txt").read().lower()
+        self.assertNotIn("pvporcupine==", requirements)
+        self.assertIn("openwakeword", requirements)
+
+    def test_a_missing_model_disables_voice_without_crashing(self):
+        """
+        A unit that cannot hear its name is degraded, not broken — the
+        touchscreen still works and River Song can still push to it.
+        """
+        callback = MagicMock()
+        detector = self._detector(callback, wake_word="not_a_real_model")
+        detector.start()
+        self.assertFalse(detector.is_running())
+        callback.assert_not_called()
 
     def test_stop_is_safe_when_never_started(self):
-        """stop() should not raise if start() was never called."""
-        from audio.wake_word import WakeWordDetector
-        detector = WakeWordDetector(on_wake_word=MagicMock())
+        detector = self._detector()
         try:
             detector.stop()
         except Exception as exc:
             self.fail(f"stop() raised unexpectedly: {exc}")
 
-    def test_callback_not_fired_during_cooldown(self):
-        """
-        Two detections within WAKE_WORD_COOLDOWN_SECONDS should only
-        fire the callback once.
-        """
-        from audio.wake_word import WakeWordDetector
-        from core.constants import WAKE_WORD_COOLDOWN_SECONDS
-
+    def test_the_cooldown_suppresses_a_second_detection(self):
+        """Otherwise one utterance fires the command flow several times."""
         callback = MagicMock()
-        detector = WakeWordDetector(on_wake_word=callback)
-        detector._last_detection_time = time.monotonic()  # Simulate recent detection
+        detector = self._detector(callback)
+        detector._maybe_fire()
+        detector._maybe_fire()
+        self.assertEqual(callback.call_count, 1)
 
-        # Manually call _fire_callback twice in quick succession
-        detector._fire_callback()
-        detector._fire_callback()
-
-        # The cooldown check is in _detection_loop, not _fire_callback directly.
-        # _fire_callback always fires — cooldown is enforced in the loop.
+    def test_a_detection_after_the_cooldown_fires_again(self):
+        from core.constants import WAKE_WORD_COOLDOWN_SECONDS
+        callback = MagicMock()
+        detector = self._detector(callback)
+        detector._maybe_fire()
+        detector._last_detection_time -= (WAKE_WORD_COOLDOWN_SECONDS + 1)
+        detector._maybe_fire()
         self.assertEqual(callback.call_count, 2)
 
-    def test_callback_exception_does_not_crash_detector(self):
-        """Exceptions in the callback must not propagate to the detector."""
-        from audio.wake_word import WakeWordDetector
-
+    def test_a_callback_exception_does_not_crash_the_detector(self):
         def bad_callback():
             raise RuntimeError("Callback error")
-
-        detector = WakeWordDetector(on_wake_word=bad_callback)
+        detector = self._detector(bad_callback)
         try:
-            detector._fire_callback()
+            detector._maybe_fire()
         except RuntimeError:
-            self.fail("Exception from callback leaked out of _fire_callback")
+            self.fail("Exception from callback leaked out of the detector")
+
+    def test_scores_above_the_threshold_count_as_a_detection(self):
+        detector = self._detector(wake_word_threshold=0.5)
+        self.assertTrue(detector._is_detection({"hey_jarvis": 0.9}))
+        self.assertTrue(detector._is_detection({"hey_jarvis": 0.5}))
+        self.assertFalse(detector._is_detection({"hey_jarvis": 0.49}))
+
+    def test_the_score_is_read_by_value_not_by_model_name(self):
+        """
+        openWakeWord keys the result on whatever it derived from the file
+        path. Looking it up by the expected name would silently never fire.
+        """
+        detector = self._detector(wake_word_threshold=0.5)
+        self.assertTrue(detector._is_detection({"/some/odd/path.onnx": 0.8}))
+
+    def test_a_malformed_score_is_not_a_detection(self):
+        detector = self._detector()
+        for junk in (None, "loud", 42, {"x": "loud"}):
+            self.assertFalse(detector._is_detection(junk))
+
+
+class TestWakeWordThreshold(unittest.TestCase):
+    """
+    Retuning how eagerly a unit wakes.
+
+    This is the dial that actually gets touched in a real house — a kitchen
+    panel by a dishwasher wakes at every clatter — so it has to be changeable
+    without SSHing into a Pi, and it has to take effect without a restart.
+    """
+
+    def _detector(self, **settings):
+        from audio.wake_word import WakeWordDetector
+        base = {"wake_word": "hey jarvis", "wake_word_threshold": 0.5,
+                "wake_word_model_dir": "audio/models", "audio_device_index": -1}
+        base.update(settings)
+        patcher = patch("audio.wake_word.config")
+        cfg = patcher.start()
+        self.addCleanup(patcher.stop)
+        cfg.get.side_effect = lambda key, default=None: base.get(key, default)
+        return WakeWordDetector(on_wake_word=MagicMock())
+
+    def test_a_new_threshold_applies_immediately(self):
+        """The loop reads it per frame, so nothing needs restarting."""
+        detector = self._detector()
+        self.assertTrue(detector.set_threshold(0.8))
+        self.assertEqual(detector.threshold, 0.8)
+        self.assertFalse(detector._is_detection({"m": 0.7}))
+        self.assertTrue(detector._is_detection({"m": 0.85}))
+
+    def test_setting_the_same_value_reports_no_change(self):
+        self.assertFalse(self._detector().set_threshold(0.5))
+
+    def test_a_value_off_the_scale_is_refused_not_clamped(self):
+        """
+        5 almost certainly means someone thought this was the old sensitivity
+        scale. Silently clamping to 1.0 leaves a unit that never wakes and no
+        clue why; refusing it leaves the old value and a log line.
+        """
+        detector = self._detector()
+        for bad in (5, -1, 1.5):
+            self.assertFalse(detector.set_threshold(bad))
+        self.assertEqual(detector.threshold, 0.5)
+
+    def test_the_bounds_themselves_are_accepted(self):
+        detector = self._detector()
+        self.assertTrue(detector.set_threshold(0.0))
+        self.assertTrue(detector.set_threshold(1.0))
+
+    def test_junk_is_ignored_rather_than_crashing_the_unit(self):
+        detector = self._detector()
+        for junk in (None, "high", [], {}):
+            self.assertFalse(detector.set_threshold(junk))
+        self.assertEqual(detector.threshold, 0.5)
+
+
+class TestWakeWordNaming(unittest.TestCase):
+    """The phrase lives in River Song; the filename lives on the unit."""
+
+    def test_a_human_phrase_becomes_a_model_filename(self):
+        from audio.wake_word import model_name_for
+        self.assertEqual(model_name_for("Hey River"), "hey_river")
+        self.assertEqual(model_name_for("sup river"), "sup_river")
+        self.assertEqual(model_name_for("Hey, River!"), "hey_river")
+
+    def test_an_empty_phrase_falls_back_to_the_default(self):
+        from audio.wake_word import model_name_for
+        from core.constants import DEFAULT_WAKE_WORD
+        self.assertEqual(model_name_for(""), DEFAULT_WAKE_WORD)
+        self.assertEqual(model_name_for(None), DEFAULT_WAKE_WORD)
+
+    def test_available_models_reports_nothing_for_a_missing_directory(self):
+        from audio.wake_word import available_models
+        self.assertEqual(available_models("/nonexistent/models"), [])
+
+    def test_available_models_strips_extensions_and_deduplicates(self):
+        import tempfile, os
+        from audio.wake_word import available_models
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("hey_river.onnx", "hey_river.tflite",
+                         "alexa.onnx", "notes.txt"):
+                open(os.path.join(tmp, name), "w").close()
+            self.assertEqual(available_models(tmp), ["alexa", "hey_river"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

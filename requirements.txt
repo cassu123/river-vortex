@@ -24,9 +24,16 @@ websockets==12.0
 # PyAudio wraps PortAudio for cross-platform mic/speaker I/O
 PyAudio==0.2.14
 
-# Porcupine local wake word engine (Picovoice)
-# Requires a free access key from console.picovoice.ai
-pvporcupine==3.0.2
+# openWakeWord — local wake word detection, no licence key and no account.
+# Chosen over Porcupine because Picovoice needs an access key, which is a
+# commercial dependency sitting in the one part of the system meant to prove
+# nothing leaves the house. River Song uses openWakeWord too, so this also
+# makes both halves agree on what the wake word is.
+#
+# Models are baked into the unit image and loaded from disk — never downloaded
+# at runtime. See audio/models/README.md.
+openwakeword==0.6.0
+onnxruntime==1.18.1
 
 # Numpy for audio signal processing (RMS silence detection)
 numpy==1.26.4

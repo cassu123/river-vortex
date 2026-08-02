@@ -131,7 +131,6 @@ river-vortex/
 - Python 3.11+
 - Node.js 20+ (for frontend development)
 - A running Home Assistant instance
-- Porcupine access key — free at [console.picovoice.ai](https://console.picovoice.ai)
 - Two system packages, neither of which is a pip install:
 
   ```bash
@@ -161,7 +160,6 @@ For local development, copy `.env.example` to `.env` and fill in your values:
 # Required
 HA_URL=http://homeassistant.local:8123
 HA_TOKEN=your_long_lived_access_token
-PORCUPINE_ACCESS_KEY=your_picovoice_key
 RIVER_SONG_API_URL=http://riversong.local
 RIVER_SONG_API_KEY=your_river_song_key
 
@@ -579,13 +577,12 @@ development machine. Everything else runs anywhere.
 |---|---|---|
 | `HA_URL` | `http://homeassistant.local:8123` | Home Assistant base URL |
 | `HA_TOKEN` | *(required)* | HA long-lived access token |
-| `PORCUPINE_ACCESS_KEY` | *(required for wake word)* | Picovoice access key |
 | `RIVER_SONG_API_URL` | `http://riversong.local` | River Song API base URL |
 | `RIVER_SONG_API_KEY` | *(required for voice)* | River Song API key |
 | `VORTEX_UNIT_ID` | *(derived per-device)* | Unique unit identifier — see below |
 | `VORTEX_UNIT_NAME` | *(unset until paired)* | Display name for this unit |
 | `VORTEX_LOCATION` | *(unset until paired)* | Room location label |
-| `VORTEX_WAKE_WORD` | `vortex` | Wake word (must match the Porcupine model) |
+| `VORTEX_WAKE_WORD` | `hey_jarvis` | Fallback wake word. Normally set in the River Song profile and pushed to the unit. |
 | `VORTEX_VOLUME` | `70` | Speaker volume (0–100) |
 | `VORTEX_AMBIENT_MODE` | `true` | Enable ambient mode |
 | `VORTEX_LOG_LEVEL` | `INFO` | Logging level |
@@ -652,9 +649,6 @@ from River Song's Home Assistant layer, not from this repo's duplicated
 
 ### Not started here
 
-- **openWakeWord** — River Song already uses it, and the wake word is chosen in
-  the user's profile there. Vortex still ships Porcupine, so the two do not yet
-  agree on what "hey River" means.
 - **The duplicated `home_assistant/` package** — 824 lines of HA client that
   River Song already owns. It should be called through, not reimplemented.
 - **SoftAP provisioning** — for changing WiFi after a house move, without

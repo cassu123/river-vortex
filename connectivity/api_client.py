@@ -27,6 +27,7 @@ from core.constants import (
     RIVER_SONG_HEALTH_ENDPOINT,
     RIVER_SONG_STATUS_ENDPOINT,
     RIVER_SONG_SURFACE_ACTION_ENDPOINT,
+    RIVER_SONG_TTS_ENDPOINT,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,35 @@ logger = logging.getLogger(__name__)
 class APIClientError(Exception):
     """Raised when a River Song API call fails."""
     pass
+
+
+def _timeout(read: float = API_READ_TIMEOUT,
+             write: Optional[float] = None) -> "httpx.Timeout":
+    """
+    Build an httpx timeout.
+
+    httpx requires either a default or ALL FOUR of connect/read/write/pool —
+    passing just two raises ValueError at call time, not at import, so four
+    call sites here were constructing an invalid timeout and dying on the
+    first real request. Three of them swallowed it in a broad `except` and
+    reported the server as unreachable; the fourth raised a 500. Every one of
+    them had a passing test, because the tests mocked this client.
+
+    One helper so the shape is written once and cannot drift again.
+
+    Args:
+        read:  Read timeout in seconds.
+        write: Write timeout. Defaults to the read timeout.
+
+    Returns:
+        A fully-specified httpx.Timeout.
+    """
+    return httpx.Timeout(
+        connect=API_CONNECT_TIMEOUT,
+        read=read,
+        write=write if write is not None else read,
+        pool=API_CONNECT_TIMEOUT,
+    )
 
 
 class APIClient:
@@ -59,12 +89,27 @@ class APIClient:
         self._api_key: str = config.get("river_song_api_key", "")
         self._unit_id: str = config.get("unit_id", "vortex-unset")
 
+        # River Song authenticates a UNIT, not a user: it reads the per-unit
+        # token from `X-Unit-Token` and pairs it with a `unit_id` carried in
+        # the body or query string (see _require_unit in its api/routes/
+        # vortex.py). This client previously sent `Authorization: Bearer` with
+        # `X-Vortex-Unit-ID`, which no route on that side has ever read — every
+        # call from a real unit was rejected.
+        #
+        # Authorization is still sent alongside, because the older fleet
+        # routes accept it and dropping it would break them.
         self._headers: Dict[str, str] = {
             "X-Vortex-Unit-ID": self._unit_id,
             "User-Agent": f"RiverVortex/1.0 unit/{self._unit_id}",
         }
         if self._api_key:
+            self._headers["X-Unit-Token"] = self._api_key
             self._headers["Authorization"] = f"Bearer {self._api_key}"
+
+    @property
+    def unit_id(self) -> str:
+        """This unit's id, as River Song knows it."""
+        return self._unit_id
 
     # ─────────────────────────────────────────────────────────────────────────
     # Voice Command
@@ -96,12 +141,8 @@ class APIClient:
         try:
             async with httpx.AsyncClient(
                 headers=self._headers,
-                timeout=httpx.Timeout(
-                    connect=API_CONNECT_TIMEOUT,
-                    read=API_STREAM_TIMEOUT,
-                    write=API_STREAM_TIMEOUT,
-                    pool=API_CONNECT_TIMEOUT,
-                ),
+                timeout=_timeout(read=API_STREAM_TIMEOUT,
+                                 write=API_STREAM_TIMEOUT),
             ) as client:
                 response = await client.post(
                     url,
@@ -136,6 +177,59 @@ class APIClient:
             raise APIClientError(f"River Song API request failed: {exc}") from exc
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Speech
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def synthesize_speech(self, text: str) -> Optional[bytes]:
+        """
+        Render text in River's own voice.
+
+        `core/voice.py` probes for this method by name and silently falls
+        through to offline espeak-ng when it is missing — which it was, so
+        every unit in the house answered in a robotic voice even with River
+        Song perfectly reachable.
+
+        Args:
+            text: What to say.
+
+        Returns:
+            WAV bytes, or None if River Song cannot synthesise right now. None
+            is not an error: the caller drops to the offline voice, which is
+            the whole point of having tiers.
+        """
+        if not text or not text.strip():
+            return None
+
+        url = f"{self._base_url}{RIVER_SONG_TTS_ENDPOINT}"
+        payload = {
+            "unit_id": self._unit_id,
+            "text": text,
+            # River Song derives the orb's amplitude envelope from this same
+            # synthesis and streams it over the WebSocket. It has the waveform
+            # in hand at exactly this moment; the unit plays an opaque blob it
+            # cannot measure.
+            "stream_amplitude": True,
+        }
+
+        try:
+            async with httpx.AsyncClient(
+                headers=self._headers,
+                timeout=_timeout(),
+            ) as client:
+                response = await client.post(url, json=payload)
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            logger.debug("River Song TTS unreachable (%s) — using local voice.", exc)
+            return None
+
+        if response.status_code != 200:
+            logger.debug("River Song TTS returned %d — using local voice.",
+                         response.status_code)
+            return None
+
+        audio = response.content
+        return audio or None
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Surfaces
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -167,7 +261,7 @@ class APIClient:
         try:
             async with httpx.AsyncClient(
                 headers=self._headers,
-                timeout=httpx.Timeout(connect=API_CONNECT_TIMEOUT, read=API_READ_TIMEOUT),
+                timeout=_timeout(),
             ) as client:
                 response = await client.post(url, json=payload)
         except httpx.TimeoutException as exc:
@@ -201,7 +295,7 @@ class APIClient:
         try:
             async with httpx.AsyncClient(
                 headers=self._headers,
-                timeout=httpx.Timeout(connect=API_CONNECT_TIMEOUT, read=API_READ_TIMEOUT),
+                timeout=_timeout(),
             ) as client:
                 response = await client.get(url)
                 response.raise_for_status()
@@ -221,7 +315,7 @@ class APIClient:
         try:
             async with httpx.AsyncClient(
                 headers=self._headers,
-                timeout=httpx.Timeout(connect=API_CONNECT_TIMEOUT, read=5.0),
+                timeout=_timeout(read=5.0),
             ) as client:
                 response = await client.get(url)
                 return response.status_code == 200

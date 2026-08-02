@@ -17,7 +17,7 @@ License:     Internal Use Only — River Song AI / riversongai.com
 
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from core.constants import VortexState
 
@@ -88,38 +88,63 @@ class TestCommandFlowPublishesEveryStage(unittest.TestCase):
         return [c.args[0]["data"]["state"] for c in self.broadcast.call_args_list
                 if c.args[0].get("type") == "presence"]
 
-    def _run_with_response(self, response_audio=b"wav", side_effect=None):
-        client = MagicMock()
-        client.send_voice_command = AsyncMock(
-            return_value=response_audio, side_effect=side_effect)
-        with patch("connectivity.api_client.APIClient", return_value=client), \
-             patch("core.voice.voice.speak", new_callable=AsyncMock):
+    def _run(self, connected=True, sent=True, replied=True):
+        """
+        Run one command cycle against a stubbed uplink.
+
+        `replied` models River Song answering: the uplink stamps a timestamp
+        when a presence or audio frame arrives, and the manager compares it
+        across the wait to tell an answer from a silent server.
+        """
+        link = MagicMock()
+        link.connected = connected
+        link.send_utterance = AsyncMock(return_value=sent)
+        # last_reply_at is read before and after the wait; advancing it means
+        # she answered, leaving it still means nothing came back.
+        link.last_reply_at = 100.0
+        if replied:
+            type(link).last_reply_at = PropertyMock(side_effect=[100.0, 101.0])
+
+        with patch("connectivity.vortex_link.vortex_link", link), \
+             patch("audio.audio_manager.REPLY_TIMEOUT_SECONDS", 0.01), \
+             patch("core.voice.voice.speak", new_callable=AsyncMock) as speak:
             run(self.manager._capture_and_process_command())
+        return link, speak
 
-    def test_a_successful_command_walks_the_whole_cycle(self):
-        self._run_with_response()
-        self.assertEqual(
-            self._states(),
-            ["LISTENING", "PROCESSING", "RESPONDING", "IDLE"],
-        )
+    def test_a_successful_command_hands_off_and_lets_river_own_the_orb(self):
+        """
+        The reply arrives asynchronously, so the unit must NOT force IDLE the
+        moment the audio is sent — that would blank the orb a fraction of a
+        second before River answers.
+        """
+        self._run()
+        self.assertEqual(self._states(), ["LISTENING", "PROCESSING"])
 
-    def test_the_unit_returns_to_idle_after_answering(self):
-        self._run_with_response()
-        self.assertEqual(self.manager.state, VortexState.IDLE)
+    def test_the_captured_audio_goes_up_the_uplink(self):
+        link, _ = self._run()
+        link.send_utterance.assert_awaited_once_with(b"pcm")
 
-    def test_the_unit_returns_to_idle_when_river_song_fails(self):
-        """A stuck 'thinking' orb after a failure would be a visible lie."""
-        self._run_with_response(side_effect=RuntimeError("offline"))
+    def test_no_uplink_returns_to_idle_rather_than_hanging(self):
+        self._run(connected=False)
         self.assertEqual(self.manager.state, VortexState.IDLE)
         self.assertEqual(self._states()[-1], "IDLE")
 
+    def test_a_server_that_never_answers_does_not_leave_the_orb_spinning(self):
+        """
+        Handing over means River owns the orb — and that is a trap if she
+        never replies. A wall panel stuck pulsing has no way out.
+        """
+        self._run(replied=False)
+        self.assertEqual(self.manager.state, VortexState.IDLE)
+
     def test_silence_returns_to_idle_without_reaching_the_network(self):
         self.manager._microphone.stream_until_silence.return_value = []
-        client = MagicMock()
-        client.send_voice_command = AsyncMock()
-        with patch("connectivity.api_client.APIClient", return_value=client):
+        link = MagicMock()
+        link.connected = True
+        link.send_utterance = AsyncMock()
+        with patch("connectivity.vortex_link.vortex_link", link):
             run(self.manager._capture_and_process_command())
-        client.send_voice_command.assert_not_awaited()
+        link.send_utterance.assert_not_awaited()
         self.assertEqual(self._states(), ["LISTENING", "IDLE"])
 
 
@@ -133,11 +158,14 @@ class TestOfflineSpeech(unittest.TestCase):
         self.manager = make_manager()
         self.manager._microphone.stream_until_silence.return_value = [b"pcm"]
 
-    def _run_failing(self):
-        client = MagicMock()
-        client.send_voice_command = AsyncMock(side_effect=RuntimeError("offline"))
-        speak = AsyncMock(return_value=True)
-        with patch("connectivity.api_client.APIClient", return_value=client), \
+    def _run_failing(self, speak=None):
+        """One command cycle with the uplink down — River cannot be reached."""
+        link = MagicMock()
+        link.connected = False
+        link.send_utterance = AsyncMock(return_value=False)
+        link.last_reply_at = 0.0
+        speak = speak if speak is not None else AsyncMock(return_value=True)
+        with patch("connectivity.vortex_link.vortex_link", link), \
              patch("core.voice.voice.speak", speak):
             run(self.manager._capture_and_process_command())
         return speak
@@ -168,27 +196,45 @@ class TestOfflineSpeech(unittest.TestCase):
 
     def test_speech_failing_still_leaves_a_chime(self):
         """The last resort must survive espeak being absent too."""
-        client = MagicMock()
-        client.send_voice_command = AsyncMock(side_effect=RuntimeError("offline"))
-        with patch("connectivity.api_client.APIClient", return_value=client), \
-             patch("core.voice.voice.speak",
-                   AsyncMock(side_effect=RuntimeError("no espeak"))):
-            run(self.manager._capture_and_process_command())
+        self._run_failing(speak=AsyncMock(side_effect=RuntimeError("no espeak")))
         self.manager._speaker.play_chime.assert_any_call("error")
 
-    def test_a_silent_success_chimes_rather_than_apologising(self):
+    def test_a_server_that_goes_quiet_says_so_differently(self):
         """
-        River Song answering with no audio is not a failure — it heard us.
-        Saying 'I can't reach River Song' there would be a lie.
+        Accepting the command and then never answering is not the same failure
+        as being unreachable — the network is plainly fine, so claiming
+        otherwise would be a lie. It admits it does not have an answer.
         """
-        client = MagicMock()
-        client.send_voice_command = AsyncMock(return_value=None)
-        speak = AsyncMock()
-        with patch("connectivity.api_client.APIClient", return_value=client), \
+        from audio.audio_manager import NO_REPLY_PHRASE, UNREACHABLE_PHRASE
+
+        link = MagicMock()
+        link.connected = True
+        link.send_utterance = AsyncMock(return_value=True)
+        link.last_reply_at = 5.0          # never advances: nothing came back
+        speak = AsyncMock(return_value=True)
+
+        with patch("connectivity.vortex_link.vortex_link", link), \
+             patch("audio.audio_manager.REPLY_TIMEOUT_SECONDS", 0.01), \
              patch("core.voice.voice.speak", speak):
             run(self.manager._capture_and_process_command())
+
+        self.assertEqual(speak.await_args.args[0], NO_REPLY_PHRASE)
+        self.assertNotEqual(speak.await_args.args[0], UNREACHABLE_PHRASE)
+
+    def test_a_reply_means_no_apology_at_all(self):
+        """River answered; the unit must not talk over her with an excuse."""
+        link = MagicMock()
+        link.connected = True
+        link.send_utterance = AsyncMock(return_value=True)
+        type(link).last_reply_at = PropertyMock(side_effect=[10.0, 11.0])
+        speak = AsyncMock()
+
+        with patch("connectivity.vortex_link.vortex_link", link), \
+             patch("audio.audio_manager.REPLY_TIMEOUT_SECONDS", 0.01), \
+             patch("core.voice.voice.speak", speak):
+            run(self.manager._capture_and_process_command())
+
         speak.assert_not_awaited()
-        self.manager._speaker.play_chime.assert_any_call("done")
 
 
 class TestVoicePrefersLocal(unittest.TestCase):

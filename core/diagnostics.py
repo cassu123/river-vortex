@@ -151,6 +151,7 @@ class Diagnostics:
             ("DISPLAY", self._check_display),
             ("AUDIO OUTPUT", self._check_audio_output),
             ("MICROPHONE", self._check_microphone),
+            ("WAKE WORD", self._check_wake_word),
             ("CAMERA", self._check_camera),
             ("LIGHT SENSOR", self._check_light_sensor),
             ("PRESENCE SENSOR", self._check_presence_sensor),
@@ -320,6 +321,33 @@ class Diagnostics:
             return CheckStatus.SKIP, "alsa-utils not installed"
         except Exception as exc:  # pylint: disable=broad-except
             return CheckStatus.WARN, f"unreadable: {exc}"
+
+    def _check_wake_word(self):
+        """
+        The model that makes the unit answer to its name.
+
+        Reports the phrase rather than the filename: "hey river" is what the
+        user said, and a boot screen that answers "hey_river.onnx present" is
+        not answering the question they asked.
+        """
+        if not config.get("mic_enabled", True):
+            return CheckStatus.SKIP, "microphone disabled in profile"
+
+        from audio.wake_word import available_models, model_name_for
+
+        phrase = config.get("wake_word", "")
+        wanted = model_name_for(phrase)
+        present = available_models()
+
+        if wanted in present:
+            return CheckStatus.OK, f"listening for '{phrase}'"
+
+        # A unit that cannot hear its name is not broken — the touchscreen
+        # still works and River Song can still push to it — but it has lost
+        # the headline feature, so this is louder than a SKIP.
+        return (CheckStatus.WARN,
+                f"no model for '{phrase}' — voice activation off "
+                f"(have: {', '.join(present) or 'none'})")
 
     def _check_camera(self):
         """
