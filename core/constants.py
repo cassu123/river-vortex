@@ -51,9 +51,17 @@ RIVER_SONG_MEDIA_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/me
 RIVER_SONG_DIAGNOSTICS_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/diagnostics"
 RIVER_SONG_SURFACES_BASE: str = f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/surfaces"
 
+# The persistent uplink. Everything River Song pushes — cards, media, presence,
+# the orb's amplitude, device and camera lists — arrives over this one socket.
+# The unit dials out; nothing ever connects inbound to a Pi.
+RIVER_SONG_WS_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/ws"
+
+# Speech synthesis in River's own voice. Without this the unit falls through to
+# offline espeak-ng, which is intelligible but robotic.
+RIVER_SONG_TTS_ENDPOINT: str = f"{RIVER_SONG_API_BASE}/tts"
+
 # Where a tapped surface button is reported. This one lives ON RIVER SONG —
-# the unit relays the intent and never interprets it. Not implemented server
-# side yet, so taps currently 502; see ROADMAP.md.
+# the unit relays the intent and never interprets it.
 RIVER_SONG_SURFACE_ACTION_ENDPOINT: str = (
     f"{RIVER_SONG_API_BASE}/{RIVER_SONG_API_VERSION}/surface-action"
 )
