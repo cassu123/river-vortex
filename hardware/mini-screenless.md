@@ -54,13 +54,13 @@ card that is genuinely a photo is a card this unit will not deliver.
 
 ## Wiring
 
-Standard pins, see [shared wiring](../README.md#common-wiring). No camera LED
+Standard pins, see [shared wiring](README.md#common-wiring). No camera LED
 needed — there is no camera on this build and the profile says so.
 
 ## Software
 
 ```bash
-cp hardware/mini-screenless/vortex_profile.json units/vortex_profile.json
+cp hardware/mini-screenless.json units/vortex_profile.json
 ```
 
 The important line is `"form_factor": "mini"`. That single value is what makes

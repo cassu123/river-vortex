@@ -69,5 +69,5 @@ Watch it. Back the 1st-gen campaign if you want one. Do not plan around it yet
 River Song speak OpenAI Realtime?"*, because the answer unlocks a lot of
 off-the-shelf hardware and not just this.
 
-Meanwhile [`mini-screenless`](../mini-screenless/) is the screenless unit that
+Meanwhile [`mini-screenless`](mini-screenless.md) is the screenless unit that
 exists and works today.

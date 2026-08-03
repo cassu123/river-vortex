@@ -21,39 +21,62 @@ from unittest.mock import patch
 
 HARDWARE = pathlib.Path("hardware")
 
-#: Builds that ship a runnable profile. The other folders are documented
+#: Builds that ship a runnable profile. The remaining sheets are documented
 #: alternatives that deliberately do not run this software.
 BUILDS = ["hub-7-counter", "hub-10-wall", "mini-screenless"]
 
+#: Documented, but cannot run this software, so they ship no profile.
+NON_VORTEX = ["satellite-echo-show", "micimike-nest-mini"]
+
+
+def sheets():
+    """Every build sheet in the folder, by name."""
+    return sorted(p.stem for p in HARDWARE.glob("*.md") if p.stem != "README")
+
 
 def load(build):
-    return json.loads((HARDWARE / build / "vortex_profile.json").read_text())
+    return json.loads((HARDWARE / f"{build}.json").read_text())
 
 
-class TestEveryBuildIsDocumented(unittest.TestCase):
-    """Each folder explains itself, and the index lists it."""
+class TestFolderShape(unittest.TestCase):
+    """
+    One folder, one file per build. Flat on purpose — a directory per build
+    buys nothing and buries the thing you actually want to read.
+    """
 
-    def test_every_build_folder_has_a_readme(self):
-        for folder in HARDWARE.iterdir():
-            if folder.is_dir():
-                self.assertTrue((folder / "README.md").exists(),
-                                f"{folder.name} has no README")
+    def test_the_folder_stays_flat(self):
+        subdirs = [p.name for p in HARDWARE.iterdir() if p.is_dir()]
+        self.assertEqual(subdirs, [], f"hardware/ must stay flat, found {subdirs}")
+
+    def test_every_sheet_is_accounted_for(self):
+        """A sheet in neither list is a build nothing is checking."""
+        self.assertEqual(sheets(), sorted(BUILDS + NON_VORTEX))
 
     def test_the_index_links_every_build(self):
         index = (HARDWARE / "README.md").read_text()
-        for folder in HARDWARE.iterdir():
-            if folder.is_dir():
-                self.assertIn(folder.name, index,
-                              f"{folder.name} is not in the index")
+        for build in sheets():
+            self.assertIn(f"({build}.md)", index,
+                          f"{build} is not linked from the index")
+
+    def test_every_runnable_build_ships_a_profile(self):
+        for build in BUILDS:
+            self.assertTrue((HARDWARE / f"{build}.json").exists(),
+                            f"{build} has no profile")
 
     def test_builds_that_cannot_run_vortex_ship_no_profile(self):
         """
-        A profile in those folders would invite someone to copy it onto a unit
-        that cannot run this software at all.
+        A profile beside those sheets would invite someone to copy it onto
+        hardware that will never boot this software.
         """
-        for name in ("satellite-echo-show", "micimike-nest-mini"):
-            self.assertFalse((HARDWARE / name / "vortex_profile.json").exists(),
-                             f"{name} must not ship a profile")
+        for build in NON_VORTEX:
+            self.assertFalse((HARDWARE / f"{build}.json").exists(),
+                             f"{build} must not ship a profile")
+
+    def test_no_orphan_profiles(self):
+        """A profile with no build sheet is a profile nobody can follow."""
+        for profile in HARDWARE.glob("*.json"):
+            self.assertTrue((HARDWARE / f"{profile.stem}.md").exists(),
+                            f"{profile.name} has no build sheet")
 
 
 class TestProfilesLoad(unittest.TestCase):
@@ -67,7 +90,7 @@ class TestProfilesLoad(unittest.TestCase):
         from core.config import Config
         for build in BUILDS:
             cfg = Config()
-            cfg.load(profile_path=str(HARDWARE / build / "vortex_profile.json"))
+            cfg.load(profile_path=str(HARDWARE / f"{build}.json"))
             self.assertTrue(cfg.get("unit_id"), f"{build} produced no unit id")
 
     def test_no_build_ships_an_identity(self):
@@ -93,7 +116,7 @@ class TestProfilesMatchTheirBuild(unittest.TestCase):
     def _config(self, build):
         from core.config import Config
         cfg = Config()
-        cfg.load(profile_path=str(HARDWARE / build / "vortex_profile.json"))
+        cfg.load(profile_path=str(HARDWARE / f"{build}.json"))
         return cfg
 
     def test_the_mini_declares_no_screen(self):

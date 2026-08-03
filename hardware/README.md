@@ -1,8 +1,9 @@
 # Hardware builds
 
-Each folder is one way to build a River Vortex unit. They all run the **same
-software image** — what differs is what is physically in the box, and each
-build ships the `vortex_profile.json` that tells the software what it has.
+Each build is one way to assemble a River Vortex unit: a `.md` build sheet and,
+where the build runs this software, a matching `.json` unit profile beside it.
+They all run the **same software image** — what differs is what is physically
+in the box, and the profile is what tells the software what it has.
 
 That profile is not documentation. It is read at boot, and it decides what the
 unit does: whether the presenter speaks an event or shows it, whether the
@@ -13,11 +14,11 @@ lens at all. Copy the profile with the parts list.
 
 | Build | What it is | Screen | Best for |
 |---|---|---|---|
-| [`hub-7-counter`](hub-7-counter/) | Pi 4 + 7" touchscreen | 800×480 | The one to build first — you already own the Pi |
-| [`hub-10-wall`](hub-10-wall/) | Pi 4/5 + 10" touchscreen | 1280×800 | Wall panel, landscape or portrait |
-| [`mini-screenless`](mini-screenless/) | Pi Zero 2 W + speaker | none | Voice-only rooms. Cheapest real unit |
-| [`satellite-echo-show`](satellite-echo-show/) | Jailbroken Echo Show | 960×480 | ⚠️ Display only — **not** a Vortex unit |
-| [`micimike-nest-mini`](micimike-nest-mini/) | ESP32 board in a Nest Mini shell | none | ⚠️ Different software entirely — **not** a Vortex unit |
+| [`hub-7-counter`](hub-7-counter.md) | Pi 4 + 7" touchscreen | 800×480 | The one to build first — you already own the Pi |
+| [`hub-10-wall`](hub-10-wall.md) | Pi 4/5 + 10" touchscreen | 1280×800 | Wall panel, landscape or portrait |
+| [`mini-screenless`](mini-screenless.md) | Pi Zero 2 W + speaker | none | Voice-only rooms. Cheapest real unit |
+| [`satellite-echo-show`](satellite-echo-show.md) | Jailbroken Echo Show | 960×480 | ⚠️ Display only — **not** a Vortex unit |
+| [`micimike-nest-mini`](micimike-nest-mini.md) | ESP32 board in a Nest Mini shell | none | ⚠️ Different software entirely — **not** a Vortex unit |
 
 The last two are in here because they came up and are worth knowing about, but
 both are marked because neither runs this codebase. Read their caveats before
@@ -68,11 +69,18 @@ hardware keeps.
 
 ## Adding a build
 
-Create a folder with a `README.md` and a `vortex_profile.json`. The profile
-must be a complete, valid profile — the software reads it directly, so a build
-sheet whose profile does not load is a build sheet that lies.
+Add `<build-name>.md` here, and `<build-name>.json` beside it if the build runs
+this software. Add a row to the table above. Flat on purpose — a folder per
+build buys nothing and buries the thing you actually want to read.
+
+The profile must be complete and valid, because the software reads it directly:
+a build sheet whose profile does not load is a build sheet that lies. Register
+the name in `BUILDS` in `tests/test_hardware_profiles.py` and the tests will
+hold it to its own parts list.
 
 Keep `configured: false` and no `unit_id` / `unit_name` / `location`. Identity
-is written by pairing; a unit flashed from an image must not claim to be in a
-room it has never been installed in, and units flashed from one image must not
-share an id.
+is written by pairing; a unit flashed from an image must not claim a room it
+was never installed in, and units flashed from one image must not share an id.
+
+A build that **cannot** run this software ships no `.json`. A profile there
+would invite someone to copy it onto hardware that will never boot it.

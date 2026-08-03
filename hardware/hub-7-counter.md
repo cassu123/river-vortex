@@ -52,7 +52,7 @@ rather than just showing black.
 ## Wiring
 
 Standard pins — 17 mute LED, 27 camera LED, 22 mute switch. See
-[the shared wiring notes](../README.md#common-wiring), especially about wiring
+[the shared wiring notes](README.md#common-wiring), especially about wiring
 the switch to cut mic power as well as signalling.
 
 No camera in this build. Add one and set `capabilities.camera` to true plus the
@@ -61,7 +61,7 @@ purposes you actually want; the camera layer refuses anything not enabled.
 ## Software
 
 ```bash
-cp hardware/hub-7-counter/vortex_profile.json units/vortex_profile.json
+cp hardware/hub-7-counter.json units/vortex_profile.json
 ```
 
 Then flash, boot, and pair from the River Song app. The unit shows a pairing

@@ -69,14 +69,14 @@ tell is live.
 
 ## Wiring
 
-See [shared wiring](../README.md#common-wiring). The 4-Mic HAT uses a lot of
+See [shared wiring](README.md#common-wiring). The 4-Mic HAT uses a lot of
 the GPIO header — check its pinout against 17 / 22 / 27 and move them in
 `core/constants.py` if needed.
 
 ## Software
 
 ```bash
-cp hardware/hub-10-wall/vortex_profile.json units/vortex_profile.json
+cp hardware/hub-10-wall.json units/vortex_profile.json
 ```
 
 For portrait, change `screen_rotation` to `90` before flashing.
