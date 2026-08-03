@@ -16,6 +16,7 @@ import './pages/boot.css';
 import './surfaces/surfaces.css';
 import './pages/settings.css';
 import './components/muteBanner.css';
+import './roundScreen.css';
 
 const container = document.getElementById('root');
 

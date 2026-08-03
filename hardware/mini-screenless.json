@@ -18,7 +18,8 @@
     "screen_height": 0,
     "mic_array": "respeaker-2mic-hat",
     "speakers": "i2s-3w-mono",
-    "platform": "raspberry-pi-zero-2w"
+    "platform": "raspberry-pi-zero-2w",
+    "screen_shape": "none"
   },
   "audio": {
     "wake_word": "hey_jarvis",

@@ -18,7 +18,8 @@
     "screen_height": 800,
     "mic_array": "respeaker-4mic-hat",
     "speakers": "usb-stereo-5w",
-    "platform": "raspberry-pi-5"
+    "platform": "raspberry-pi-5",
+    "screen_shape": "rectangular"
   },
   "audio": {
     "wake_word": "hey_jarvis",

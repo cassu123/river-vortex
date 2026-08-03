@@ -1,5 +1,5 @@
 {
-  "_comment": "Hub 7\" counter unit \u2014 Raspberry Pi 4 + official 7\" DSI touchscreen. See hardware/hub-7-counter/README.md. Identity is deliberately absent: it is written by the pairing flow.",
+  "_comment": "Round Spot \u2014 Raspberry Pi 4 + Waveshare 4\" DSI round touch panel (720x720). hardware.screen_shape 'round' is what makes the frontend inscribe its layout in the circle; without it every corner is clipped by the bezel. See hardware/round-spot.md. Identity is written by pairing.",
   "configured": false,
   "theme": "dark-river",
   "form_factor": "hub",
@@ -13,22 +13,22 @@
     "presence_sensor": false
   },
   "hardware": {
-    "screen": "7-inch-touchscreen",
-    "screen_width": 800,
-    "screen_height": 480,
-    "mic_array": "respeaker-2mic-hat",
-    "speakers": "powered-3.5mm",
+    "screen": "4-inch-round-touchscreen",
+    "screen_width": 720,
+    "screen_height": 720,
+    "mic_array": "usb-mic-array",
+    "speakers": "i2s-3w-mono",
     "platform": "raspberry-pi-4",
-    "screen_shape": "rectangular"
+    "screen_shape": "round"
   },
   "audio": {
     "wake_word": "hey_jarvis",
-    "volume": 70,
+    "volume": 55,
     "audio_device_index": -1,
-    "wake_word_threshold": 0.5
+    "wake_word_threshold": 0.6
   },
   "display": {
-    "screen_brightness": 80,
+    "screen_brightness": 60,
     "ambient_mode_enabled": true,
     "ambient_timeout": 300,
     "screen_rotation": 0

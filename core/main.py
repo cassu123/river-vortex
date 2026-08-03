@@ -243,6 +243,9 @@ def create_app(
             "unit_id": config.get("unit_id"),
             "unit_name": config.get("unit_name"),
             "configured": bool(config.get("configured", False)),
+            # The frontend needs this before it paints: a round panel clips
+            # its own corners, so the layout has to inscribe itself.
+            "screen_shape": config.get("screen_shape", "rectangular"),
             "status": "ok",
         }
 

@@ -23,7 +23,7 @@ HARDWARE = pathlib.Path("hardware")
 
 #: Builds that ship a runnable profile. The remaining sheets are documented
 #: alternatives that deliberately do not run this software.
-BUILDS = ["hub-7-counter", "hub-10-wall", "mini-screenless"]
+BUILDS = ["hub-7-counter", "hub-10-wall", "round-spot", "mini-screenless"]
 
 #: Documented, but cannot run this software, so they ship no profile.
 NON_VORTEX = ["satellite-echo-show", "micimike-nest-mini"]
@@ -145,11 +145,34 @@ class TestProfilesMatchTheirBuild(unittest.TestCase):
                 self.assertTrue(presenter.has_screen, build)
 
     def test_screen_dimensions_match_the_declared_panel(self):
-        expected = {"hub-7-counter": (800, 480), "hub-10-wall": (1280, 800)}
+        expected = {"hub-7-counter": (800, 480), "hub-10-wall": (1280, 800),
+                    "round-spot": (720, 720)}
         for build, (width, height) in expected.items():
             cfg = self._config(build)
             self.assertEqual((cfg.get("screen_width"), cfg.get("screen_height")),
                              (width, height), build)
+
+    def test_every_build_declares_its_screen_shape(self):
+        """
+        A round panel that does not say so renders a rectangular layout and
+        loses every corner behind the bezel — broken in a way that is hard to
+        diagnose from a photo. Explicit on every build, never defaulted.
+        """
+        for build in BUILDS:
+            shape = self._config(build).get("screen_shape")
+            self.assertIn(shape, {"rectangular", "round", "none"},
+                          f"{build} declares no screen shape")
+
+    def test_a_round_panel_is_square(self):
+        """A circular screen whose width and height differ is a typo."""
+        for build in BUILDS:
+            cfg = self._config(build)
+            if cfg.get("screen_shape") == "round":
+                self.assertEqual(cfg.get("screen_width"), cfg.get("screen_height"),
+                                 f"{build} is round but not square")
+
+    def test_a_screenless_build_claims_no_shape(self):
+        self.assertEqual(self._config("mini-screenless").get("screen_shape"), "none")
 
     def test_no_build_ships_with_a_camera_it_does_not_have(self):
         """Optional hardware defaults absent — assuming one is a privacy bug."""

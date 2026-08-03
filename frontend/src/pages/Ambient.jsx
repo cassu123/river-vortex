@@ -75,7 +75,7 @@ export default function Ambient() {
       {/* Center content. With a card in play the clock steps aside into a
           column rather than shrinking to nothing — the time is still the
           thing most glances are looking for. */}
-      <div style={card ? styles.centerWithCard : styles.center}>
+      <div className="ambient-center" style={card ? styles.centerWithCard : styles.center}>
         <div style={styles.clockColumn}>
           <Clock showSeconds={false} />
           <div style={styles.divider} />

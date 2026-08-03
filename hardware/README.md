@@ -16,6 +16,7 @@ lens at all. Copy the profile with the parts list.
 |---|---|---|---|
 | [`hub-7-counter`](hub-7-counter.md) | Pi 4 + 7" touchscreen | 800×480 | The one to build first — you already own the Pi |
 | [`hub-10-wall`](hub-10-wall.md) | Pi 4/5 + 10" touchscreen | 1280×800 | Wall panel, landscape or portrait |
+| [`round-spot`](round-spot.md) | Pi 4 + 4" round touch | 720×720 | Bedside or shelf. The orb finally gets round hardware |
 | [`mini-screenless`](mini-screenless.md) | Pi Zero 2 W + speaker | none | Voice-only rooms. Cheapest real unit |
 | [`satellite-echo-show`](satellite-echo-show.md) | Jailbroken Echo Show | 960×480 | ⚠️ Display only — **not** a Vortex unit |
 | [`micimike-nest-mini`](micimike-nest-mini.md) | ESP32 board in a Nest Mini shell | none | ⚠️ Different software entirely — **not** a Vortex unit |
@@ -23,6 +24,20 @@ lens at all. Copy the profile with the parts list.
 The last two are in here because they came up and are worth knowing about, but
 both are marked because neither runs this codebase. Read their caveats before
 buying anything.
+
+## Round panels
+
+A round screen is still a **square framebuffer** — the browser cannot tell its
+corners are behind a bezel, so a rectangular layout silently loses them.
+
+Set `hardware.screen_shape` to `"round"` and the frontend inscribes itself in
+the largest square that fits the circle: side `D/√2`, a 14.65% inset on every
+edge. Backgrounds still bleed to the bezel; only content is pulled in. See
+`frontend/src/roundScreen.css`.
+
+Every build declares its shape explicitly — `rectangular`, `round`, or `none`
+for a screenless unit — rather than relying on a default. A panel that gets
+this wrong looks broken in a way that is hard to diagnose from a photo.
 
 ## What every build needs
 

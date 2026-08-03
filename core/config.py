@@ -450,6 +450,10 @@ class Config:
             "hw_mic_array": hardware.get("mic_array", "unknown"),
             "hw_speakers": hardware.get("speakers", "unknown"),
             "hw_platform": hardware.get("platform", "unknown"),
+            # "round" on a circular panel. The frontend inscribes its layout
+            # in the largest square that fits inside the circle — without
+            # this, every corner of every screen is clipped off by the bezel.
+            "screen_shape": hardware.get("screen_shape", "rectangular"),
         })
         # Screen dimensions live under hardware but are used flat.
         for key in ("screen_width", "screen_height"):

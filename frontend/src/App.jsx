@@ -555,7 +555,13 @@ export default function App() {
 
   return (
     <AppContext.Provider value={contextValue}>
-      <div style={styles.root}>
+      <div
+        style={styles.root}
+        // A round panel is still a square framebuffer — the browser cannot
+        // tell its corners are behind a bezel. This class inscribes the
+        // layout in the circle; see roundScreen.css.
+        className={state.system.screen_shape === 'round' ? 'screen--round' : undefined}
+      >
         <PageRouter page={state.page} diagnostics={state.diagnostics} />
         <IntercomBanner />
         <AnnouncementBanner />

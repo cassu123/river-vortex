@@ -1,0 +1,151 @@
+/*
+ * ============================================================================
+ * Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+ * File:     frontend/src/roundScreen.css
+ * Purpose:  Layout corrections for circular panels.
+ *
+ *           A round screen is still a square framebuffer — the browser has no
+ *           idea the corners are behind a bezel. Everything drawn there is
+ *           simply invisible, so without this a round unit loses the corner of
+ *           every card, the end of every settings row, and both ends of the
+ *           boot log.
+ *
+ *           The fix is geometric, not cosmetic. The largest square that fits
+ *           inside a circle of diameter D has side D/√2 ≈ 0.7071D, so the
+ *           usable area is inset by (1 − 0.7071)/2 ≈ 14.65% of the diameter on
+ *           every side. Content is confined to that square; only backgrounds
+ *           are allowed to bleed to the edge, because a photo running under
+ *           the bezel is the one thing that looks better for it.
+ *
+ *           Applied by the `screen--round` class on the app root, set from the
+ *           unit profile's hardware.screen_shape. A rectangular unit never
+ *           loads any of this.
+ * ============================================================================
+ */
+
+.screen--round {
+  /* Inscribed-square inset. Percentages resolve against the element's own
+     width, which is the panel diameter, so this holds at 480px and 1080px
+     alike without a media query per panel. */
+  --round-inset: 14.65%;
+  /* Circular units are small — 4" at 720px is dense. Everything reads a
+     little smaller than on a 7" panel at the same pixel count. */
+  --round-scale: 0.92;
+}
+
+/*
+ * Content inset.
+ *
+ * Applied to the page containers rather than the root, so full-bleed layers —
+ * the photo backdrop, the screen-off black, the takeover scrim — still cover
+ * the whole circle. Only things with edges that matter get pulled in.
+ */
+.screen--round .settings,
+.screen--round .boot__inner {
+  padding-left: var(--round-inset);
+  padding-right: var(--round-inset);
+  box-sizing: border-box;
+}
+
+/*
+ * Vertical padding is LARGER than the horizontal inset, not smaller.
+ *
+ * A circle narrows fastest at its top and bottom: content at the very apex has
+ * no width at all. The inscribed-square inset is right for the sides but leaves
+ * the first and last rows of a scrolling list hanging over the bezel, so they
+ * lose their ends. 20% starts and finishes the list in the wide middle band.
+ *
+ * Rows that scroll past the extremes still narrow — that is inherent to
+ * scrolling inside a circle, and is why this build is documented as an ambient
+ * screen with a settings page behind it rather than a settings-first unit.
+ */
+.screen--round .settings,
+.screen--round .boot__inner {
+  padding-top: 20%;
+  padding-bottom: 20%;
+}
+
+/*
+ * The header sits at the top of the page where the chord is shortest, so it
+ * gets pulled in further than the rows below it — otherwise the Back button
+ * loses its left edge to the bezel.
+ */
+.screen--round .settings__head {
+  padding-left: 6%;
+  padding-right: 6%;
+}
+
+/*
+ * A card is centred and width-limited rather than inset, because it is already
+ * inside the circle by construction — insetting it as well left the text in a
+ * column two words wide.
+ *
+ * 76% is geometry, not taste. The card sits below centre, where the circle has
+ * narrowed to about 83% of its diameter; 76% clears that with a margin, and
+ * anything wider starts losing corners.
+ */
+.screen--round .surface:not(.surface--takeover) {
+  max-width: 76%;
+  border-radius: 22px;
+  font-size: calc(1em * var(--round-scale));
+}
+
+/*
+ * A takeover fills the circle. Its background should reach the bezel — a
+ * doorbell alert with square corners inside a round hole looks like a bug —
+ * but its text still has to respect the inscribed square.
+ */
+.screen--round .surface--takeover {
+  padding: 18% 16%;
+  border-radius: 50%;
+}
+
+/*
+ * The ambient screen is the one that benefits from being round. Clock centred,
+ * card beneath rather than beside it — side by side does not fit in a circle
+ * at any size worth reading.
+ */
+.screen--round .ambient-center {
+  flex-direction: column !important;
+  gap: 14px !important;
+  max-width: 70%;
+}
+
+/*
+ * The boot log is the worst case: fixed-width monospace rows in a circle. Trim
+ * the columns that are least load-bearing rather than shrinking the type past
+ * legibility — the timing figure is diagnostic detail, the status and the
+ * label are the message.
+ */
+.screen--round .boot__ms { display: none; }
+.screen--round .boot__detail {
+  max-width: 44%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen--round .boot__title { font-size: 26px; letter-spacing: 0.18em; }
+
+/*
+ * The mute banner is the exception that proves the rule. It is a chord across
+ * the top of the circle, so it is narrower than the panel and needs its own
+ * rounding — but it must NOT be inset out of the way, because the whole point
+ * is that it is impossible to miss.
+ */
+.screen--round .mute-banner {
+  /* Placed where the chord is long enough to hold the pill without the bezel
+     cutting its ends off. At 9% down the circle has widened to about 74% of
+     its diameter; 18% inset each side sits inside that with a margin. */
+  top: 9%;
+  left: 18%;
+  right: 18%;
+  border-radius: 999px;
+  border-bottom: none;
+  justify-content: center;
+  font-size: 15px;
+}
+
+/*
+ * The orb needs nothing. It was already a circle, and on a round panel it is
+ * the one element that looks like it was designed for the hardware.
+ */
