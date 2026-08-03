@@ -152,6 +152,7 @@ class Diagnostics:
             ("AUDIO OUTPUT", self._check_audio_output),
             ("MICROPHONE", self._check_microphone),
             ("WAKE WORD", self._check_wake_word),
+            ("MUTE SWITCH", self._check_mute_switch),
             ("CAMERA", self._check_camera),
             ("LIGHT SENSOR", self._check_light_sensor),
             ("PRESENCE SENSOR", self._check_presence_sensor),
@@ -348,6 +349,39 @@ class Diagnostics:
         return (CheckStatus.WARN,
                 f"no model for '{phrase}' — voice activation off "
                 f"(have: {', '.join(present) or 'none'})")
+
+    def _check_mute_switch(self):
+        """
+        The physical microphone mute switch.
+
+        Reported on the boot screen because its position is a fact about the
+        unit that matters before anything else works: a panel that appears
+        deaf is usually a panel whose switch is on, and it should not take
+        anyone half an hour to discover that.
+        """
+        from safety.privacy_manager import PrivacyManager  # noqa: F401
+
+        try:
+            import RPi.GPIO  # type: ignore  # noqa: F401
+        except (ImportError, RuntimeError):
+            return CheckStatus.SKIP, "no GPIO (not a Pi)"
+
+        state = self._privacy_state()
+        if not state.get("mic_switch_fitted"):
+            return CheckStatus.SKIP, "not fitted"
+        if state.get("mic_switch_muted"):
+            # Not a fault — someone chose this — but the loudest correct
+            # thing to say, because it explains everything else being quiet.
+            return CheckStatus.WARN, "ON — microphone is muted"
+        return CheckStatus.OK, "fitted, microphone live"
+
+    def _privacy_state(self):
+        """Current privacy state, or an empty dict if there is no manager."""
+        try:
+            from core.settings_api import _privacy_manager
+            return _privacy_manager.get_state() if _privacy_manager else {}
+        except Exception:  # pylint: disable=broad-except
+            return {}
 
     def _check_camera(self):
         """

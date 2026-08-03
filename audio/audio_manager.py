@@ -64,10 +64,19 @@ class AudioManager:
                    command handlers that may need to trigger HA actions.
     """
 
-    def __init__(self, ha_client=None) -> None:
-        """Initialize AudioManager with all audio subsystem components."""
+    def __init__(self, ha_client=None, privacy_manager=None) -> None:
+        """
+        Args:
+            ha_client:       Optional Home Assistant client reference.
+            privacy_manager: The mute authority. Passed in at construction
+                rather than attached later so there is no window in which the
+                microphone is open and the mute is not yet being enforced.
+        """
         self._ha_client = ha_client
+        self._privacy = privacy_manager
         self._microphone = Microphone()
+        if privacy_manager is not None:
+            self._microphone.set_privacy_manager(privacy_manager)
         self._speaker = Speaker()
         self._wake_word_detector: Optional[WakeWordDetector] = None
         self._running: bool = False
@@ -103,6 +112,7 @@ class AudioManager:
 
         self._wake_word_detector = WakeWordDetector(
             on_wake_word=self._on_wake_word_detected,
+            privacy_manager=self._privacy,
         )
         self._wake_word_detector.start()
 

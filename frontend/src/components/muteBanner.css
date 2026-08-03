@@ -1,0 +1,77 @@
+/*
+ * ============================================================================
+ * Project:  River Vortex — Smart Home Hub for the River Song AI Ecosystem
+ * File:     frontend/src/components/muteBanner.css
+ * Purpose:  Styles for the persistent "Microphone muted" indicator.
+ *
+ *           Readable from across a room and above everything else on screen,
+ *           including a critical surface takeover. Static — it does not pulse
+ *           or animate, because something that will sit there for three days
+ *           must not cost anything, and a flashing bar in a bedroom at night
+ *           is its own problem.
+ * ============================================================================
+ */
+
+.mute-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Above the surface takeover (60). Nothing River Song pushes outranks
+     telling the user whether the room is being listened to. */
+  z-index: 100;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+
+  padding: 12px 20px;
+  box-sizing: border-box;
+
+  background: rgba(204, 85, 68, 0.92);
+  color: #fff;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.25);
+
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+
+.mute-banner__icon {
+  font-size: 20px;
+  line-height: 1;
+  /* The slash is the meaning — the icon alone reads as "microphone", which
+     is the opposite of what this bar says. */
+  position: relative;
+}
+
+.mute-banner__icon::after {
+  content: '';
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  top: 50%;
+  height: 2px;
+  background: #fff;
+  transform: rotate(-45deg);
+  border-radius: 1px;
+}
+
+.mute-banner__how {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+/* A hardware mute is a stronger statement than a software one, so it reads
+   as one: solid rather than translucent, and a heavier rule beneath it. */
+.mute-banner--switch {
+  background: rgb(178, 62, 47);
+  border-bottom-width: 3px;
+}
+
+@media (max-height: 600px) {
+  .mute-banner { padding: 9px 14px; font-size: 15px; }
+  .mute-banner__icon { font-size: 17px; }
+}

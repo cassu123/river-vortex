@@ -276,6 +276,23 @@ CONNECTIVITY_TIMEOUT_SECONDS: int = 5
 
 PRIVACY_MIC_MUTE_GPIO_PIN: int = 17        # BCM pin for hardware mic mute LED
 
+# The physical mute switch — an INPUT, unlike every other pin here.
+#
+# Wire a latching SPST switch between this pin and ground. The pin is pulled
+# up, so closed (switch flipped to mute) reads LOW.
+#
+# When this switch says muted, software cannot unmute. That is the entire
+# point of a physical control: a setting you can toggle in an app is a
+# preference, a switch you can see is a promise.
+#
+# HONEST LIMIT: this is still a switch READ BY SOFTWARE. The strongest version
+# cuts power to the microphone itself, so no code can be wrong about it. If
+# you want that guarantee, wire the switch to break the mic's supply and use
+# this pin only to tell the software what happened. Both wirings work with the
+# code below; only one of them survives a compromised Pi.
+PRIVACY_MIC_SWITCH_GPIO_PIN: int = 22      # BCM pin, LOW = muted
+PRIVACY_SWITCH_POLL_SECONDS: float = 0.2   # How often the switch is read
+
 # The camera LED means the OPPOSITE of the mic one, and the difference is
 # deliberate.
 #

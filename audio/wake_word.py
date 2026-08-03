@@ -117,6 +117,7 @@ class WakeWordDetector:
         self,
         on_wake_word: Callable[[], None],
         threshold: Optional[float] = None,
+        privacy_manager: Any = None,
     ) -> None:
         """
         Initialize the wake word detector.
@@ -124,12 +125,17 @@ class WakeWordDetector:
         Args:
             on_wake_word: Callback invoked (no arguments) on detection. Called
                           from the detector thread.
+            privacy_manager: The mute authority. This detector opens its OWN
+                          audio stream, separate from the Microphone, so
+                          without this a muted unit would still wake to its
+                          name — which is not what anyone means by muted.
             threshold:    Confidence in [0.0, 1.0] above which a frame counts
                           as a detection. HIGHER IS STRICTER — the inverse of
                           Porcupine's old sensitivity dial, so a value carried
                           over from the previous config will behave backwards.
         """
         self._on_wake_word: Callable[[], None] = on_wake_word
+        self._privacy = privacy_manager
         self._threshold: float = threshold if threshold is not None else float(
             config.get("wake_word_threshold", WAKE_WORD_THRESHOLD)
         )
@@ -353,6 +359,13 @@ class WakeWordDetector:
                     logger.warning("Audio read error in wake word loop: %s", exc)
                     continue
 
+                # Checked after the read so the stream keeps draining — a
+                # backed-up buffer would deliver stale audio the moment the
+                # switch came off — but before anything is scored, so muted
+                # audio is never examined for the wake word at all.
+                if self._is_muted():
+                    continue
+
                 frame = np.frombuffer(raw, dtype=np.int16)
                 scores = self._model.predict(frame)
                 if self._is_detection(scores):
@@ -363,6 +376,22 @@ class WakeWordDetector:
         finally:
             self._close_stream()
             logger.debug("Wake word detection loop exited.")
+
+    def _is_muted(self) -> bool:
+        """
+        Whether this unit is currently muted, by software or by the switch.
+
+        Asked on every frame rather than cached: the point of the physical
+        switch is that flipping it takes effect now, and a cached answer is a
+        thing that can be wrong for as long as the cache lasts.
+        """
+        try:
+            return bool(self._privacy is not None and self._privacy.mic_muted)
+        except Exception:  # pylint: disable=broad-except
+            # Fail towards NOT muted: a broken privacy manager should not
+            # silently deafen a unit with no way for the user to tell why.
+            # The LED and the settings screen both still report the truth.
+            return False
 
     def _is_detection(self, scores) -> bool:
         """

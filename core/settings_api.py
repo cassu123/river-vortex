@@ -125,6 +125,12 @@ async def get_settings() -> Dict[str, Any]:
         "brightness": (_screen_manager.get_brightness()
                        if _screen_manager else int(config.get("screen_brightness", 80))),
         "mic_muted": bool(privacy.get("mic_muted", False)),
+        # Whether a physical switch is fitted, and where it is. The screen
+        # needs both: a unit with no switch must not imply it has one, and a
+        # unit whose switch is on shows the toggle locked rather than as
+        # something the user simply failed to turn off.
+        "mic_switch_fitted": bool(privacy.get("mic_switch_fitted", False)),
+        "mic_switch_muted": bool(privacy.get("mic_switch_muted", False)),
         "camera_muted": bool(privacy.get("cam_muted", False)),
         "camera_active": bool(privacy.get("cam_active", False)),
         "wake_word_threshold": (_wake_word.threshold if _wake_word
@@ -146,6 +152,7 @@ async def get_settings() -> Dict[str, Any]:
             "microphone": _privacy_manager is not None,
             "camera": camera_fitted and _privacy_manager is not None,
             "wake_word": _wake_word is not None,
+            "mic_switch": bool(privacy.get("mic_switch_fitted", False)),
         },
     }
 
@@ -190,9 +197,16 @@ async def update_settings(payload: SettingsUpdate) -> Dict[str, Any]:
         else:
             if payload.mic_muted:
                 _privacy_manager.mute_microphone()
+                applied["mic_muted"] = True
+            elif _privacy_manager.unmute_microphone():
+                applied["mic_muted"] = False
             else:
-                _privacy_manager.unmute_microphone()
-            applied["mic_muted"] = payload.mic_muted
+                # The physical switch is holding it muted and software cannot
+                # override that. Saying so is the point — silently "applying"
+                # an unmute that did not happen is exactly the lie the switch
+                # exists to make impossible.
+                refused["mic_muted"] = (
+                    "the physical mute switch on this unit is on")
             # Deliberately NOT persisted. A mic that silently comes back
             # muted after a power cut is a unit that looks broken; a mic that
             # comes back live is at least honest, and the LED says so.

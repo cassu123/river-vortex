@@ -479,7 +479,8 @@ class RiverVortex:
         # ── Privacy Manager ───────────────────────────────────────────────────
         try:
             from safety.privacy_manager import PrivacyManager
-            self._privacy_manager = PrivacyManager()
+            self._privacy_manager = PrivacyManager(
+                on_change=self._broadcast_privacy_state)
             await self._privacy_manager.start()
             logger.info("[OK] Privacy manager started.")
         except Exception as exc:
@@ -526,7 +527,10 @@ class RiverVortex:
         if config.get("cap_audio", True) and config.get("mic_enabled", True):
             try:
                 from audio.audio_manager import AudioManager
-                self._audio_manager = AudioManager(ha_client=self._ha_client)
+                self._audio_manager = AudioManager(
+                    ha_client=self._ha_client,
+                    privacy_manager=self._privacy_manager,
+                )
                 await self._audio_manager.start()
                 # The presenter speaks through this. Without it a screenless
                 # unit has no way to tell the user anything at all.
@@ -831,6 +835,16 @@ class RiverVortex:
         """
         await ws_hub.broadcast({"type": "diagnostic", "result": result,
                                 "report": report})
+
+    async def _broadcast_privacy_state(self, state: Dict[str, Any]) -> None:
+        """
+        Push privacy state to the screen.
+
+        Called when the physical mute switch moves, so the "Microphone muted"
+        banner appears as the switch is flipped rather than whenever the UI
+        next happens to ask.
+        """
+        await ws_hub.broadcast({"type": "privacy_update", "privacy": state})
 
     async def _broadcast_media_state(self, state: Dict[str, Any]) -> None:
         """

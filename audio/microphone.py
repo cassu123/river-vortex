@@ -58,6 +58,11 @@ class Microphone:
         self._channels: int = AUDIO_CHANNELS
         self._chunk_size: int = AUDIO_CHUNK_SIZE
         self._muted: bool = False
+        # The privacy manager, when one exists. Consulted on every frame read
+        # rather than mirrored into a local flag, because a copy is a thing
+        # that can be stale — and a microphone that is stale about being muted
+        # is the exact failure this whole subsystem exists to prevent.
+        self._privacy = None
 
         self._pa = None             # PyAudio instance
         self._stream = None         # Active PyAudio stream
@@ -128,7 +133,7 @@ class Microphone:
         """
         if not self._stream:
             raise MicrophoneError("Microphone stream is not open. Call open() first.")
-        if self._muted:
+        if self.muted:
             # Return silence when muted — same byte length as a real frame
             return b"\x00" * (self._chunk_size * 2)  # 2 bytes per int16 sample
         try:
@@ -165,6 +170,15 @@ class Microphone:
         if not self._stream:
             raise MicrophoneError("Microphone stream is not open.")
 
+        # Muted means muted. This path reads the hardware stream directly for
+        # speed, which meant it bypassed the mute check entirely — so a muted
+        # microphone would still have captured a command and sent it upstream.
+        # Yield nothing rather than silence: a silent command is still a
+        # command, and still leaves the house.
+        if self.muted:
+            logger.info("Command capture refused — the microphone is muted.")
+            return
+
         start_time = time.monotonic()
         silence_start: Optional[float] = None
 
@@ -174,6 +188,12 @@ class Microphone:
             elapsed = time.monotonic() - start_time
             if elapsed >= max_duration:
                 logger.debug("Command capture hit max duration (%.1fs).", max_duration)
+                break
+
+            # Re-checked every chunk, not just at the start: someone hitting
+            # mute mid-sentence expects the rest of that sentence not to go.
+            if self.muted:
+                logger.info("Command capture stopped — microphone muted mid-capture.")
                 break
 
             try:
@@ -196,6 +216,31 @@ class Microphone:
                 silence_start = None  # Reset silence timer on speech
 
             yield chunk
+
+    def set_privacy_manager(self, privacy_manager) -> None:
+        """
+        Attach the privacy manager whose mute state this microphone obeys.
+
+        Until this was wired, PrivacyManager.mute_microphone() set a flag and
+        lit an LED and blocked nothing: the Microphone had its own separate
+        flag that only AudioManager ever touched. A privacy control that
+        reports "muted" while audio keeps flowing is worse than none, because
+        it is believed.
+        """
+        self._privacy = privacy_manager
+
+    @property
+    def muted(self) -> bool:
+        """
+        True if this microphone is muted, by any means.
+
+        Either the local software flag or the privacy manager — which itself
+        answers for the physical switch. Any one of them muting is enough;
+        none of them can un-mute on another's behalf.
+        """
+        if self._muted:
+            return True
+        return bool(self._privacy is not None and self._privacy.mic_muted)
 
     def mute(self) -> None:
         """

@@ -176,8 +176,16 @@ export default function Settings() {
 
         {can.microphone && (
           <Toggle
-            label="Microphone muted" on={settings.mic_muted} danger
-            hint="Nothing is heard while this is on, including the wake word. Comes back on after a restart."
+            label="Microphone muted"
+            on={settings.mic_muted}
+            danger
+            // Locked, not just unhelpful: while the physical switch is on,
+            // software genuinely cannot unmute, so a toggle that looked
+            // available would be lying about who is in charge.
+            disabled={settings.mic_switch_muted}
+            hint={settings.mic_switch_muted
+              ? 'Held muted by the physical switch on this unit. Flip the switch to listen again.'
+              : 'Nothing is heard while this is on, including the wake word. Comes back on after a restart.'}
             onChange={(v) => update({ mic_muted: v })}
           />
         )}

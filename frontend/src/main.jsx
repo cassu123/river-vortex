@@ -15,6 +15,7 @@ import './components/photoBackdrop.css';
 import './pages/boot.css';
 import './surfaces/surfaces.css';
 import './pages/settings.css';
+import './components/muteBanner.css';
 
 const container = document.getElementById('root');
 

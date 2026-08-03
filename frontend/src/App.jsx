@@ -28,6 +28,7 @@ import Settings from './pages/Settings';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import IntercomBanner from './components/IntercomBanner';
 import ReminderBanner from './components/ReminderBanner';
+import MuteBanner from './components/MuteBanner';
 import Orb from './presence/Orb';
 import { IDLE_PRESENCE, makePresence } from './presence/presenceContract';
 import Surface from './surfaces/Surface';
@@ -80,6 +81,11 @@ const initialState = {
   media: { state: 'idle', now_playing: {} },
   /** Boot self-test report (see core/diagnostics.py) */
   diagnostics: null,
+  /**
+   * Microphone and camera privacy state, including the physical mute switch.
+   * Pushed the moment the switch moves — see safety/privacy_manager.py.
+   */
+  privacy: { mic_muted: false, cam_muted: false, mic_switch_fitted: false },
   /**
    * River's presence — {state, amplitude, mood, caption}. Drives the orb
    * today and the Rive / holographic avatar later. See presenceContract.js.
@@ -147,6 +153,8 @@ function appReducer(state, action) {
       return { ...state, diagnostics: action.payload };
     case 'SET_UPLINK':
       return { ...state, uplinkConnected: action.payload };
+    case 'SET_PRIVACY':
+      return { ...state, privacy: { ...state.privacy, ...action.payload } };
     case 'SET_SURFACES':
       return {
         ...state,
@@ -273,6 +281,11 @@ function handleMessage(msg, dispatch, amplitudeRef) {
     // unit can be perfectly healthy locally and still have lost the server.
     case 'uplink':
       dispatch({ type: 'SET_UPLINK', payload: Boolean(msg.connected) });
+      break;
+    // The physical mute switch moved, or mute changed some other way. Pushed
+    // rather than polled so the banner appears as the switch is flipped.
+    case 'privacy_update':
+      dispatch({ type: 'SET_PRIVACY', payload: msg.privacy || {} });
       break;
     // A replica snapshot carries several feeds at once; unpack the ones the
     // UI renders. Sent on connect and as deltas afterwards.
@@ -476,6 +489,27 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // Seed privacy state on load. The banner must be right the moment the
+  // screen paints — a unit whose switch has been on for three days should not
+  // show an unmuted panel until something happens to change.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/vortex/v1/settings')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data) {
+          dispatch({ type: 'SET_PRIVACY', payload: {
+            mic_muted: data.mic_muted,
+            cam_muted: data.camera_muted,
+            mic_switch_fitted: data.capabilities?.mic_switch ?? false,
+            mic_switch_muted: data.mic_switch_muted ?? false,
+          } });
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   // Sweep expired surfaces. A card's lifetime has to pass without anyone
   // pushing anything, so nothing else would ever take it down. The reducer
   // returns the same state when nothing expired, so this is free at rest.
@@ -527,6 +561,7 @@ export default function App() {
         <AnnouncementBanner />
         <ReminderBanner />
         <SurfaceTakeover surfaces={state.surfaces} onDismiss={dismissSurface} />
+        <MuteBanner />
         <PresenceOverlay presence={state.presence} amplitudeRef={amplitudeRef} />
       </div>
     </AppContext.Provider>
