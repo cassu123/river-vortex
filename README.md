@@ -119,6 +119,8 @@ river-vortex/
 │   ├── surfaces/       # Surface contract, card renderer, card CSS
 │   └── components/     # Clock, Weather, PhotoBackdrop, banners, widgets
 ├── units/              # Per-unit vortex_profile.json (identity written at pairing)
+├── hardware/           # Build sheets — parts, wiring, and a working profile
+│                       #   per variant (7" counter, 10" wall, screenless Mini)
 └── tests/              # Unit tests
 ```
 

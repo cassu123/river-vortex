@@ -1,0 +1,57 @@
+{
+  "_comment": "Mini \u2014 Raspberry Pi Zero 2 W, speaker and microphone, no screen. form_factor 'mini' is what makes the presenter SPEAK events instead of showing them. See hardware/mini-screenless/README.md.",
+  "configured": false,
+  "theme": "dark-river",
+  "form_factor": "mini",
+  "capabilities": {
+    "audio": true,
+    "display": false,
+    "intercom": true,
+    "home_assistant": true,
+    "camera": false,
+    "light_sensor": false,
+    "presence_sensor": false
+  },
+  "hardware": {
+    "screen": "none",
+    "screen_width": 0,
+    "screen_height": 0,
+    "mic_array": "respeaker-2mic-hat",
+    "speakers": "i2s-3w-mono",
+    "platform": "raspberry-pi-zero-2w"
+  },
+  "audio": {
+    "wake_word": "hey_jarvis",
+    "volume": 80,
+    "audio_device_index": -1,
+    "wake_word_threshold": 0.55
+  },
+  "display": {
+    "screen_brightness": 0,
+    "ambient_mode_enabled": false,
+    "ambient_timeout": 0,
+    "screen_rotation": 0
+  },
+  "intercom": {
+    "intercom_enabled": true,
+    "intercom_port": 5005
+  },
+  "privacy": {
+    "privacy_mic_mute_on_startup": false,
+    "privacy_cam_mute_on_startup": false
+  },
+  "backend": {
+    "backend_host": "127.0.0.1",
+    "backend_port": 8080
+  },
+  "logging": {
+    "log_level": "INFO",
+    "log_dir": "/var/log/river-vortex"
+  },
+  "camera_purposes": {
+    "video_calls": false,
+    "motion_snapshots": false,
+    "presence": false,
+    "face_recognition": false
+  }
+}
